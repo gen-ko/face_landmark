@@ -1,0 +1,6 @@
+__pycache__
+__pycache__/*
+data
+fan_tf
+saved_model
+*.png
