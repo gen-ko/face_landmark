@@ -4,3 +4,6 @@ data
 fan_tf
 saved_model
 *.png
+.ipynb_checkpoints
+.~*
+*.ipynb

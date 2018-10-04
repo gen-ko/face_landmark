@@ -2,15 +2,16 @@ import re
 import os
 import json
 import numpy as np
+import scipy
 from scipy.ndimage import imread
 from scipy.misc import imsave
 from torch.utils.serialization import load_lua
-from tqdm import tqdm
 from utils import pipeline
-import cv2
 import tensorflow as tf
 from face_detection import face_detector
 import PIL
+
+from face_landmark import preprocess
 # Currently working with LF3D dataset
 ANNOTATION_PATTERN = re.compile(pattern='([ \\S]+)_pts.t7')
 
@@ -110,37 +111,7 @@ def load_dataset_from_json_with_heatmap(dump_dir):
         imgs_filenames = json.load(fid)
     return heatmap_filenames, imgs_filenames
 
-def generate_heatmap(pts):
-    # The desired Height and Width of the heatmaps
-    # NOTE: pts must be normalized to [0, 1)
-    h = 64
-    w = 64
-    c = pts.shape[0]
-    assert pts.shape == (68, 2)
-    #assert pts.dtype == np.float32
-    heatmap = np.zeros((h, w, c), dtype=np.float32)
-    pts = np.clip(pts, 0.0, 1-1e-7) 
-    # NOTE: For int(64 * np.float32(1 - 1e-8)) = 64, yet int(64 * np.float32(1 - 1e-7)) = 63 
-    for i in range(c):
-        # the first  [0] column of pts is x
-        # the second [1] column of pts is y 
-        index_y = int(pts[i][1] * h)
-        index_x = int(pts[i][0] * w)
-        try:
-            heatmap[index_y, index_x, i] = 1.0
-        except IndexError:
-            print('index_y', index_y)
-            print('index_x', index_x)
-            print('i', i)
-            raise IndexError
-    heatmap = cv2.GaussianBlur(heatmap, (h + (h % 2) - 1, w + (w % 2) - 1), sigmaX=0, sigmaY=0, borderType=cv2.BORDER_CONSTANT)
-    max_itensity = heatmap.max(axis=(0,1))
-    min_itensity = heatmap.min(axis=(0,1))
-    scale = 2.0 / (max_itensity - min_itensity)
-    mean = (max_itensity + min_itensity) / 2.0
-    heatmap = (heatmap - mean) * scale
-    heatmap = np.array(heatmap)
-    return heatmap
+
 
 def create_heatmap_dataset(dump_dir, annotation_root_dir, heatmap_root_dir):
     '''
@@ -163,7 +134,7 @@ def create_heatmap_dataset(dump_dir, annotation_root_dir, heatmap_root_dir):
         anno_3d = anno_3d.astype(np.float32)
         anno_3d[:,0] = np.float32(anno_3d[:,0]/w)
         anno_3d[:,1] = np.float32(anno_3d[:,1]/h)
-        heatmap = generate_heatmap(anno_3d)
+        heatmap = preprocess.pts2heatmap(anno_3d)
         #print(heatmap.max())
         #print(heatmap.min())
         dirname, basename = os.path.split(heatmap_filenames[i])

@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 def pool(x):
-    with tf.variable_scope('pool', reuse=False):
+    with tf.variable_scope('pool'):
         layer = tf.layers.average_pooling2d(
                 inputs=x,
                 pool_size=2,
@@ -12,7 +12,7 @@ def pool(x):
 
 
 def bn(x):
-    with tf.variable_scope('batchnorm', reuse=False):
+    with tf.variable_scope('batchnorm'):
         layer = tf.layers.batch_normalization(
                 x,
                 axis=-1,
@@ -42,7 +42,7 @@ def bn(x):
 
 
 def conv7x7(x, out_channels, stride=2, padding=3, bias=False):
-    with tf.variable_scope('conv7x', reuse=False):
+    with tf.variable_scope('conv7x'):
         layer = tf.layers.conv2d(
                 inputs=x,
                 filters=out_channels,
@@ -65,7 +65,7 @@ def conv7x7(x, out_channels, stride=2, padding=3, bias=False):
 
 
 def conv3x3(x, out_channels, stride=1, padding=1, bias=False):
-    with tf.variable_scope('conv3x', reuse=False):
+    with tf.variable_scope('conv3x'):
         layer = tf.layers.conv2d(
                 inputs=x,
                 filters=out_channels,
@@ -88,7 +88,7 @@ def conv3x3(x, out_channels, stride=1, padding=1, bias=False):
 
  
 def conv1x1(x, out_channels, stride=1, padding=1, bias=False):
-    with tf.variable_scope('conv1x', reuse=False):
+    with tf.variable_scope('conv1x'):
         layer = tf.layers.conv2d(
                 inputs=x,
                 filters=out_channels,
@@ -119,7 +119,7 @@ def downsample(x, out_channels):
     if True:
         print('in_channels:', in_channels)
         print('out_channels:', out_channels)
-    with tf.variable_scope('downsample', reuse=False):
+    with tf.variable_scope('downsample'):
         bn1 = bn(x)
         relu1 = tf.nn.relu(bn1)
         conv1 = conv1x1(relu1, out_channels)
@@ -127,7 +127,7 @@ def downsample(x, out_channels):
 
 
 def conv_block(x, out_channels):
-    with tf.variable_scope('convblock', reuse=False):
+    with tf.variable_scope('convblock'):
         in_channels = x.shape[-1]
         with tf.variable_scope('conv1'):
             bn1 = bn(x)
