@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import scipy
+import tensorflow as tf
 from PIL import Image
 from skimage.transform import resize
 from skimage.filters import gaussian
@@ -100,27 +101,26 @@ def random_scale(image, pts, sup=1.2, inf=0.8, probe=0.5):
         image, pts = scale(image, pts, h_ratio, w_ratio)
     return image, pts
 
-def extend_bbx_stage2(bbx, aspect_ratio):
+def extend_bbx_stage2(bbx):
     '''
     extend the bbx to make it 1:1 aspect ratio
     '''
     ymin, xmin, ymax, xmax = bbx
     w = xmax - xmin
-    h = (ymax - ymin) * aspect_ratio
+    h = ymax - ymin
     delta = (h - w) * 0.5
     if delta > 0:
         xmin = xmin - delta
         xmax = xmax + delta
     else:
         delta = -delta
-        delta /= aspect_ratio
         ymin = ymin - delta
         ymax = ymax + delta
     return np.array([ymin, xmin, ymax, xmax])
 
-def extend_bbx(bbx, aspect_ratio=1.0):
+def extend_bbx(bbx):
     bbx = extend_bbx_stage1(bbx)
-    bbx = extend_bbx_stage2(bbx, aspect_ratio)
+    bbx = extend_bbx_stage2(bbx)
     return bbx
 
 def extend_bbx_adaptive(bbx):
@@ -150,39 +150,6 @@ def extend_bbx_adaptive(bbx):
     ymax_new = ymax + delta_w * aspect_ratio
     tmp = np.array([ymin_new, xmin_new, ymax_new, xmax_new], dtype=np.float32)
     return tmp
-
-def extend_bbx_preserve_ratio(bbx):
-    '''
-    returns the extended bbx, may containes negative value or values greater than 1
-    -----------           ------------
-    |         |           |          |
-    |   ---   |           |  ------  |
-    |   | |   |    -->    |  |    |  |
-    |   ---   |           |  |    |  |
-    |         |           |  ------  |
-    -----------           ------------
-    bbx: (4, ) array with dtype np.float32, range from [0, 1)
-    '''
-    ymin, xmin, ymax, xmax = bbx
-    w = xmax - xmin
-    h = ymax - ymin
-    aspect_ratio = h / w
-    w_new = 1.4 * w
-    h_new = 1.3 * h
-    if h_new > w_new:
-        delta = 0.5*(h_new - w_new)
-        xmin_new = xmin - w * 0.2 - delta
-        xmax_new = xmax + w * 0.2 + delta
-        ymin_new = ymin
-        ymax_new = ymax + h * 0.3
-    else:
-        delta = 0.5*(w_new - h_new)
-        xmin_new = xmin - w * 0.2
-        xmax_new = xmax + w * 0.2
-        ymin_new = ymin - delta
-        ymax_new = ymax + h * 0.3 + delta
-    return tmp
-
 
 
 def get_extend_matrix(bbx):
@@ -284,9 +251,7 @@ def train_preprocess(image, landmark, bbx):
 
 
 def infer_preprocess(image, bbx):
-    h, w, _ = image.shape
-    aspect_ratio = float(h) / w
-    bbx = extend_bbx(bbx, aspect_ratio)
+    bbx = extend_bbx(bbx)
     extend_matrix = get_extend_matrix(bbx)
 
     ymin, xmin, ymax, xmax = bbx
@@ -337,29 +302,33 @@ def pts2heatmap(pts, h=64, w=64, sigma=1, singular=False):
                        preserve_range=False, 
                        truncate=4.0)
     # an alternative way, the gaussian kernel are not truncated
-    #heatmap = scipy.ndimage.gaussian_filter(heatmap, sigma=sigma, mode='constant')
+    # heatmap = scipy.ndimage.gaussian_filter(heatmap, sigma=sigma, mode='constant')
     max_itensity = heatmap.max(axis=(0,1))
     min_itensity = heatmap.min(axis=(0,1))
     scale = 2.0 / (max_itensity - min_itensity)
-    mean = (max_itensity + min_itensity) / 2.0
+    mean = (max_itensity - min_itensity) / 2.0
     heatmap = (heatmap - mean) * scale
     return heatmap
 
 
 def heatmap2pts(heatmap):
     '''
-    heatmap: HWC
+    heatmap: NHWC tensor
+    
+    NOTE: This is an equivalent implementation of heatmap2pts
     '''
-    h, w, c = heatmap.shape
-    heatmap = np.reshape(heatmap, [-1, c])
-    indices = np.argmax(heatmap, axis=0)
-    rows = indices / w
-    cols = indices % w
-    ys = (rows + 0.5) / h
-    xs = (cols + 0.5) / w
-    pts = np.array([xs, ys]).T
+    shape = tf.shape(heatmap)
+    h = shape[1]
+    w = shape[2]
+    c = shape[3]
+    heatmap = tf.reshape(heatmap, [-1, h * w, c])
+    indice = tf.cast(tf.argmax(heatmap, axis=1), dtype=tf.int32)
+    rows = tf.cast(indice / w, dtype=tf.int32)
+    cols = indice % w
+    ys = (tf.cast(rows, dtype=tf.float32) + 0.5) / tf.cast(h, tf.float32)
+    xs = (tf.cast(cols, dtype=tf.float32) + 0.5) / tf.cast(w, tf.float32)
+    pts = tf.stack([xs, ys], axis=2)
     return pts
-
 
 
 
