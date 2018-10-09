@@ -11,17 +11,20 @@ def extend_bbx_stage1(bbx):
     extend the bbx by 0.2x bbx_width left,
                       0.2x bbx_width right,
                       0.3x bbx_height down
+    bbx: 1D tensor [ymin, xmin, ymax, xmax]
     '''
-    ymin, xmin, ymax, xmax = bbx
-    w = xmax - xmin
-    h = ymax - ymin
-    ymin_new = ymin
-    ymax_new = ymax + h * 0.3
-    xmin_new = xmin - w * 0.2
-    xmax_new = xmax + w * 0.2
-    return np.array([ymin_new, xmin_new, ymax_new, xmax_new])
+    # [w, h]
+    bbx = tf.reshape(bbx, [4, 1])
+    wh = tf.matmul([[0.0, -1.0, 0.0, 1.0], [-1.0, 0.0, 1.0, 0.0]], bbx)
+    delta = tf.matmul([[0.0, 0.0], [-0.2, 0], [0, 0.3], [0.2, 0]], wh)
+    bbx = bbx + delta
+    bbx = tf.reshape(bbx, [4])
+    return bbx
 
 def flip_landmark_lr(pts):
+    '''
+    pts: 2D tensor [m, 2], where m is the pts num of a landmark, typically 68,  2 is the x, y coordinate
+    '''
     index_new = [16, 15, 14, 13, 12, 11, 10, 9,
                  8,
                  7, 6, 5, 4, 3, 2, 1, 0,
@@ -47,45 +50,70 @@ def flip_landmark_lr(pts):
                  67,
                  66,
                  65]
-    pts = pts[index_new]
-    pts[:, 0] = 1.0 - pts[:, 0]
+    depth = len(index_new)
+    one_hot = tf.one_hot(indices=index_new, depth=depth)
+    pts = tf.matmul(one_hot, pts)
+    delta_y1 = tf.matmul(pts, [[1.0,0.0],[0.0,-1.0]])
+    const_y2 = np.repeat([[0, 1.0]], repeats=depth, axis=0)
+    pts = const_y2 + pts
     return pts
 
 def flip_lr(image, pts):
-    image = np.flip(image, axis=1)
+    '''
+    image: 3-D Tensor of shape [height, width, channels]
+    pts: 2-D Tensor of shape [m, 2]
+    '''
+    image = tf.image.flip_left_right(image)
     pts = flip_landmark_lr(pts)
     return image, pts
 
 def random_flip_lr(image, pts, probe=0.5):
-    if np.random.uniform() < probe:
-        image, pts = flip_lr(image, pts)
+    '''
+    image: 3-D Tensor of shape [height, width, channels]
+    pts: 2-D Tensor of shape [m, 2]
+    '''
+    random_num = tf.random_uniform(shape=[])
+    image, pts = tf.cond(
+            pred=random_num < probe,
+            true_fn= lambda: flip_lr(image, pts),
+            false_fn=lambda: (image, pts))
     return image, pts
 
+
+'''
+No equivalent implementation needed for inference
 def rotate_landmark(pts, angle):
-    '''
+    """
     [x'] =  [1   ] [cos0  -sin0] [1   ] [x]
     [y']    [  -1] [sin0   cos0] [  -1] [y]
-    '''
+    """
     pts = pts - 0.5
     angle = math.radians(angle)
     rotate_matrix = np.array([[math.cos(angle), math.sin(angle)],
                               [-math.sin(angle),math.cos(angle)]])
-    pts = (np.matmul(rotate_matrix, pts.T)).T
+    pts = tf.matmul(pts, tf.transpose(rotate_matrix))
     pts = pts + 0.5
     return pts
-
+'''
+     
+'''
+No equivalent implementation needed for inference
 def rotate(image, pts, angle):
     image = Image.fromarray(image)
     image = image.rotate(angle, resample=Image.BILINEAR)
     pts = rotate_landmark(pts, angle)
     return np.array(image), pts
-
+'''
+'''
+No equivalent implementation needed for inference
 def random_rotate(image, pts, limit=50.0, probe=0.5):
     if np.random.uniform() < probe:
         angle = np.random.uniform(low=-limit, high=limit)
         image, pts = rotate(image, pts, angle)
     return image, pts
-
+'''
+'''
+No equivalent implementation needed for inference
 def scale(image, pts, h_ratio, w_ratio):
     h, w, _ = image.shape
     h = int(h * h_ratio)
@@ -93,63 +121,44 @@ def scale(image, pts, h_ratio, w_ratio):
     image = Image.fromarray(image)
     image = image.resize((h,w), resample=Image.BILINEAR)
     return np.array(image), pts
-
+'''
+'''
+No equivalent implementation needed for inference
 def random_scale(image, pts, sup=1.2, inf=0.8, probe=0.5):
     if np.random.uniform() < probe:
         h_ratio = np.random.uniform(low=inf, high=sup)
         w_ratio = np.random.uniform(low=inf, high=sup)
         image, pts = scale(image, pts, h_ratio, w_ratio)
     return image, pts
-
-def extend_bbx_stage2(bbx):
+'''
+     
+def extend_bbx_stage2(bbx, aspect_ratio):
     '''
     extend the bbx to make it 1:1 aspect ratio
     '''
-    ymin, xmin, ymax, xmax = bbx
-    w = xmax - xmin
-    h = ymax - ymin
-    delta = (h - w) * 0.5
-    if delta > 0:
-        xmin = xmin - delta
-        xmax = xmax + delta
-    else:
-        delta = -delta
-        ymin = ymin - delta
-        ymax = ymax + delta
-    return np.array([ymin, xmin, ymax, xmax])
-
-def extend_bbx(bbx):
-    bbx = extend_bbx_stage1(bbx)
-    bbx = extend_bbx_stage2(bbx)
+    bbx = tf.reshape(bbx, [4, 1])
+    wh = tf.matmul([[0.0, -1.0, 0.0, 1.0], [-aspect_ratio, 0.0, aspect_ratio, 0.0]], bbx)
+    
+    delta = 0.5 * tf.matmul([[-1.0, 1.0]], wh)
+    
+    delta = tf.tile(delta, [4, 1])
+    print(delta.shape)
+    
+    delta = tf.multiply([[-1.0/aspect_ratio], [1.0], [-1.0/aspect_ratio], [1.0]], delta)
+    
+    delta = tf.maximum(0.0, delta)
+    
+    delta = tf.multiply([[-1.0], [-1.0], [1.0], [1.0]], delta)
+    
+    bbx = bbx + delta
+    
+    bbx = tf.reshape(bbx, [4])
     return bbx
 
-def extend_bbx_adaptive(bbx):
-    '''
-    returns the extended bbx, may containes negative value or values greater than 1
-    -----------           ------------
-    |         |           |          |
-    |   ---   |           |  ------  |
-    |   | |   |    -->    |  |    |  |
-    |   ---   |           |  |    |  |
-    |         |           |  ------  |
-    -----------           ------------
-    bbx: (4, ) array with dtype np.float32, range from [0, 1)
-    '''
-    ymin, xmin, ymax, xmax = bbx
-    w = xmax - xmin
-    h = ymax - ymin
-    aspect_ratio = h / w
-    if aspect_ratio > 1.0 and aspect_ratio < 1.7:
-        # clip is necessary to avoid huge padding matrix
-        delta_w = np.clip(((aspect_ratio - 1) / (2 - aspect_ratio) * w), 0.0, w)
-    else:
-        delta_w = 0.0
-    xmin_new = xmin - delta_w
-    xmax_new = xmax + delta_w
-    ymin_new = ymin
-    ymax_new = ymax + delta_w * aspect_ratio
-    tmp = np.array([ymin_new, xmin_new, ymax_new, xmax_new], dtype=np.float32)
-    return tmp
+def extend_bbx(bbx, aspect_ratio):
+    bbx = extend_bbx_stage1(bbx)
+    bbx = extend_bbx_stage2(bbx, aspect_ratio)
+    return bbx
 
 
 def get_extend_matrix(bbx):
@@ -157,72 +166,76 @@ def get_extend_matrix(bbx):
     bbx: the extended bounding box
     returns a 3x3 matrix indicating the transform of the extending the image
     '''
-    ymin, xmin, ymax, xmax = bbx
-    exmin = max(0.0, 0.0-xmin)
-    exmax = max(0.0, xmax-1.0)
-    eymin = max(0.0, 0.0-ymin)
-    eymax = max(0.0, ymax-1.0)
+    ymin = bbx[0]
+    xmin = bbx[1]
+    ymax = bbx[2]
+    xmax = bbx[3]
+    exmin = tf.maximum(0.0, 0.0-xmin)
+    exmax = tf.maximum(0.0, xmax-1.0)
+    eymin = tf.maximum(0.0, 0.0-ymin)
+    eymax = tf.maximum(0.0, ymax-1.0)
+     
     ex = exmin+exmax
     fx = ex+1.0
     ey = eymin+eymax
     fy = ey+1.0
-    tmp = np.array([[1.0/fx, 0.0, exmin/fx],
-                    [0.0, 1.0/fy,eymin/fy],
-                    [0.0,0.0,1.0]])
+          
+    tmp = [[1.0/fx, 0.0, exmin/fx],
+           [0.0, 1.0/fy,eymin/fy],
+           [0.0,0.0,1.0]]
+    tmp = tf.convert_to_tensor(tmp)
     return tmp
 
 
 def extend_image(image, extend_matrix):
-    '''
-    image must be in HWC format, does not care about the number of C
-    '''
+    """
+    image: 3-D Tensor of shape (H, W, C), does not care about the number of C
+    """
     exmin = extend_matrix[0,2] / (extend_matrix[0,0])
     exmax = 1.0 / (extend_matrix[0, 0]) - exmin - 1.0
     eymin = extend_matrix[1,2] / (extend_matrix[1,1])
     eymax = 1.0 / (extend_matrix[1, 1]) - eymin - 1.0
-    #print('extend_image:', exmin, exmax, eymin, eymax)
-    height =  image.shape[0]
-    width = image.shape[1]
-    exmin = int(width * exmin)
-    exmax = int(width * exmax)
-    eymin = int(height * eymin)
-    eymax = int(height * eymax)
-    image = np.pad(image, pad_width=((eymin, eymax), (exmin, exmax), (0, 0)), mode='constant', constant_values=0)
+    shape = tf.shape(image)
+    height = tf.cast(shape[0], tf.float32)
+    width = tf.cast(shape[1], tf.float32)
+    exmin = tf.cast(width * exmin, tf.int32)
+    exmax = tf.cast(width * exmax, tf.int32)
+    eymin = tf.cast(height * eymin,tf.int32)
+    eymax = tf.cast(height * eymax,tf.int32)
+    image = tf.pad(image, paddings=((eymin, eymax), (exmin, exmax), (0, 0)), mode='CONSTANT', constant_values=0)
     return image
 
 
 def get_crop_matrix(bbx):
-    esp = 1e-7
-    ymin, xmin, ymax, xmax = bbx
+    ymin = bbx[0]
+    xmin = bbx[1]
+    ymax = bbx[2]
+    xmax = bbx[3]
     cwidth = xmax - xmin
     cheight = ymax - ymin
-    tmp = np.array([[1.0/(cwidth),0.0,-xmin/(cwidth)],
+ 
+    tmp = [[1.0/(cwidth),0.0,-xmin/(cwidth)],
                     [0.0,1.0/(cheight),-ymin/(cheight)],
-                    [0.0, 0.0, 1.0]])
-    #print('get crop mat', ymin, xmin, ymax, xmax, cwidth, cheight)
-    #print('crop mat', tmp)
+                    [0.0, 0.0, 1.0]]
+    tmp = tf.convert_to_tensor(tmp)
     return tmp
 
 
 def crop_image(image, crop_matrix):
-    '''
-    does not care about image dtype,
-    does not care about image channel
-    the image dimension must be 2 (HW) or 3 (HWC)
-    '''
-    esp = 1e-7
+    """
+    image: 3-D Tensor of shape (H, W, C), does not care about the number of C
+    """
     xmin = -crop_matrix[0, 2] / (crop_matrix[0, 0])
     xmax = 1.0/(crop_matrix[0,0]) + xmin
     ymin = -crop_matrix[1, 2] / (crop_matrix[1, 1])
     ymax = 1.0/(crop_matrix[1,1]) + ymin
-    #print('crop_image', xmin, xmax, ymin, ymax)
-    #print('crop mat', crop_matrix)
-    height = image.shape[0]
-    width = image.shape[1]
-    xmin = int(width * xmin)
-    xmax = int(width * xmax)
-    ymin = int(height * ymin)
-    ymax = int(height * ymax)
+    shape = tf.shape(image)
+    height = tf.cast(shape[0], tf.float32)
+    width = tf.cast(shape[1], tf.float32)
+    xmin = tf.cast(width * xmin, tf.int64)
+    xmax = tf.cast(width * xmax, tf.int64)
+    ymin = tf.cast(height * ymin, tf.int64)
+    ymax = tf.cast(height * ymax, tf.int64)
     image = image[ymin:ymax, xmin:xmax]
     return image
 
@@ -238,8 +251,8 @@ def transform_pts(pts, transform_matrix):
     [ y']   [ T10, T11, T12 ] [y]
     [ 1 ]   [ T20, T21, T22 ] [1]
     '''
-    pts = np.pad(pts, pad_width=((0,0), (0,1)), mode='constant', constant_values=1.0)
-    pts = np.matmul(pts, transform_matrix.T)
+    pts = tf.pad(pts, paddings=((0,0), (0,1)), mode='CONSTANT', constant_values=1.0)
+    pts = tf.matmul(pts, tf.transpose(transform_matrix))
     pts = pts[:, :2]
     return pts
 
@@ -251,29 +264,42 @@ def train_preprocess(image, landmark, bbx):
 
 
 def infer_preprocess(image, bbx):
-    bbx = extend_bbx(bbx)
+    shape = tf.shape(image)
+    h = tf.cast(shape[0], tf.float32)
+    w = tf.cast(shape[1], tf.float32)
+    aspect_ratio = h / w
+    
+    bbx = extend_bbx(bbx, aspect_ratio)
     extend_matrix = get_extend_matrix(bbx)
 
-    ymin, xmin, ymax, xmax = bbx
-    bbx_pts = np.array([[xmin, ymin],
-                        [xmax, ymax]]).astype(np.float32)
+    ymin = bbx[0]
+    xmin = bbx[1]
+    ymax = bbx[2]
+    xmax = bbx[3]
+    bbx_pts = tf.convert_to_tensor([[xmin, ymin],
+                                    [xmax, ymax]])
+    
+
 
     bbx_pts = transform_pts(bbx_pts, extend_matrix)
-    xmin, ymin = bbx_pts[0]
-    xmax, ymax = bbx_pts[1]
-    bbx_crop = np.array([ymin, xmin, ymax, xmax])
+    xmin = bbx_pts[0, 0]
+    ymin = bbx_pts[0, 1]
+    xmax = bbx_pts[1, 0]
+    ymax = bbx_pts[1, 1]
+
+    bbx_crop = tf.convert_to_tensor([ymin, xmin, ymax, xmax])
     crop_matrix = get_crop_matrix(bbx_crop)
 
     image = extend_image(image, extend_matrix)
     image = crop_image(image, crop_matrix)
-    trans_matrix = np.matmul(crop_matrix, extend_matrix)
+    trans_matrix = tf.matmul(crop_matrix, extend_matrix)
 
     return image, trans_matrix
 
 def infer_postprocess(landmark, trans_matrix):
-    inv_matrix = np.linalg.inv(trans_matrix)
+    inv_matrix = tf.linalg.inv(trans_matrix)
     landmark = transform_pts(landmark, inv_matrix)
-    landmark = np.clip(landmark, 0.0, 1.0)
+    landmark = tf.clip_by_value(landmark, 0.0, 1.0)
     return landmark
 
 
