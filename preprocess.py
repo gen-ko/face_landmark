@@ -269,7 +269,7 @@ def transform_pts(pts, transform_matrix):
 
     [ x'] = [ T00, T01, T02 ] [x]
     [ y']   [ T10, T11, T12 ] [y]
-    [ 1 ]   [ T20, T21, T22 ] [1]
+    [ 1 ]   [  0,   0,   1  ] [1]
     '''
     pts = np.pad(pts, pad_width=((0,0), (0,1)), mode='constant', constant_values=1.0)
     pts = np.matmul(pts, transform_matrix.T)

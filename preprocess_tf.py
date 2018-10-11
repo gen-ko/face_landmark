@@ -12,6 +12,7 @@ def extend_bbx_stage1(bbx):
                       0.2x bbx_width right,
                       0.3x bbx_height down
     bbx: 1D tensor [ymin, xmin, ymax, xmax]
+    return: 1D tensor, with shape [4], dtype float32, [ymin, xmin, ymax, xmax]
     '''
     # [w, h]
     bbx = tf.reshape(bbx, [4, 1])
@@ -21,6 +22,25 @@ def extend_bbx_stage1(bbx):
     bbx = tf.reshape(bbx, [4])
     return bbx
 
+def extend_bbx_stage1_batch(bbx):
+    '''
+    bbx: 2D tensor, shape [batch_size, 4]
+    return: 2D tensor, with shape [batch_size, 4], dtype float32, [ymin, xmin, ymax, xmax]
+    '''
+    bbx = tf.reshape(bbx, [-1, 4, 1])
+    transform = tf.convert_to_tensor([[[0.0, -1.0, 0.0, 1.0], [-1.0, 0.0, 1.0, 0.0]]])
+    shape = tf.shape(bbx)
+    batch_size = shape[0]
+    transform = tf.manip.tile(transform, multiples=[batch_size, 1, 1])
+    wh = tf.matmul(transform, bbx)
+    transform = tf.convert_to_tensor([[[0.0, 0.0], [-0.2, 0], [0, 0.3], [0.2, 0]]])
+    transform = tf.manip.tile(transform, multiples=[batch_size, 1, 1])
+    delta = tf.matmul(transform, wh)
+    bbx = bbx + delta
+    bbx = tf.reshape(bbx, [batch_size, 4])
+    return
+    
+    
 def flip_landmark_lr(pts):
     '''
     pts: 2D tensor [m, 2], where m is the pts num of a landmark, typically 68,  2 is the x, y coordinate
