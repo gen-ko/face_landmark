@@ -208,7 +208,7 @@ def hourglass(x, level):
     return out
 
 
-def fan(x, num_modules=1):
+def fan(x, num_modules=1, reuse=None):
     '''
     x NHWC image tensor, where H = 256, W = 256, C = 3, dtype= tf.float32, range from [-1, 1]
     '''
@@ -216,7 +216,7 @@ def fan(x, num_modules=1):
     shape = tf.shape(x)
     shape = shape[1:3]
 
-    with tf.variable_scope('fan'):
+    with tf.variable_scope('fan', reuse=reuse):
         # Base
         with tf.variable_scope('base'):
             with tf.variable_scope('conv1'):
