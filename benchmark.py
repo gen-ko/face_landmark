@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 import matplotlib
 matplotlib.use('Agg') # enable this to plot correctly on server
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import spline
+from face_landmark import metric
 def plot_cdf(x):
     num_bins = x.shape[0]
     counts, bin_edges = np.histogram (x, bins=num_bins, normed=True)
@@ -18,3 +20,19 @@ def plot_cdf(x):
     plt.plot (x_axis_finegrain, y_axis_smooth)
     plt.savefig('tmp.png')
     return
+
+pts = np.load('/barn2/yuan/westworld/pts_dump.npy')
+pts_real = np.load('/barn2/yuan/westworld/pts_real_dump.npy')
+d = np.load('/barn2/yuan/westworld/d_dump.npy')
+
+
+nme = metric.nme_batch(pts, pts_real, d)
+print(nme)
+
+pts = np.load('/barn2/yuan/westworld/pts_dump2.npy')
+pts_real = np.load('/barn2/yuan/westworld/pts_real_dump2.npy')
+d = np.load('/barn2/yuan/westworld/d_dump2.npy')
+
+
+nme = metric.nme_batch(pts, pts_real, d)
+print(nme)

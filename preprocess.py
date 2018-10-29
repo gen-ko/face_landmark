@@ -100,6 +100,38 @@ def random_scale(image, pts, sup=1.2, inf=0.8, probe=0.5):
         image, pts = scale(image, pts, h_ratio, w_ratio)
     return image, pts
 
+def random_occulusion(image, pts, sup=0.4, inf=0.1, probe=0.5):
+    if np.random.uniform() < probe:
+        x_min = np.random.uniform(low=0.0, high=1.0-inf)
+        y_min = np.random.uniform(low=0.0, high=1.0-inf)
+        x_max = np.random.uniform(low=x_min + inf, high=x_min + sup)
+        y_max = np.random.uniform(low=y_min + inf, high=y_min + sup)
+        
+        x_max = np.minimum(1.0, x_max)
+        y_max = np.minimum(1.0, y_max)
+        
+        h, w, c = image.shape
+        dtype = image.dtype
+        
+        x_min_ind = int(w*x_min)
+        y_min_ind = int(h*y_min)
+        x_max_ind = int(w*x_max)
+        y_max_ind = int(h*y_max)
+        
+        h_new = y_max_ind - y_min_ind
+        w_new = x_max_ind - x_min_ind
+        
+        low = image.min()
+        high = image.max()
+        
+        
+        patch = np.random.uniform(low=low, high=high, size=(h_new, w_new, c)).astype(dtype)
+        
+        image[y_min_ind:y_max_ind, x_min_ind:x_max_ind] = patch
+            
+    return image, pts
+        
+
 def extend_bbx_stage2(bbx, aspect_ratio):
     '''
     extend the bbx to make it 1:1 aspect ratio

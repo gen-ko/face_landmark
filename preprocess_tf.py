@@ -6,46 +6,9 @@ from PIL import Image
 from skimage.transform import resize
 from skimage.filters import gaussian
 
-def extend_bbx_stage1(bbx):
-    '''
-    extend the bbx by 0.2x bbx_width left,
-                      0.2x bbx_width right,
-                      0.3x bbx_height down
-    bbx: 1D tensor [ymin, xmin, ymax, xmax]
-    return: 1D tensor, with shape [4], dtype float32, [ymin, xmin, ymax, xmax]
-    '''
-    # [w, h]
-    bbx = tf.reshape(bbx, [4, 1])
-    wh = tf.matmul([[0.0, -1.0, 0.0, 1.0], [-1.0, 0.0, 1.0, 0.0]], bbx)
-    delta = tf.matmul([[0.0, 0.0], [-0.2, 0], [0, 0.3], [0.2, 0]], wh)
-    bbx = bbx + delta
-    bbx = tf.reshape(bbx, [4])
-    return bbx
+DEBUG_LEVEL = 10
 
-def extend_bbx_stage1_batch(bbx):
-    '''
-    bbx: 2D tensor, shape [batch_size, 4]
-    return: 2D tensor, with shape [batch_size, 4], dtype float32, [ymin, xmin, ymax, xmax]
-    '''
-    bbx = tf.reshape(bbx, [-1, 4, 1])
-    transform = tf.convert_to_tensor([[[0.0, -1.0, 0.0, 1.0], [-1.0, 0.0, 1.0, 0.0]]])
-    shape = tf.shape(bbx)
-    batch_size = shape[0]
-    transform = tf.manip.tile(transform, multiples=[batch_size, 1, 1])
-    wh = tf.matmul(transform, bbx)
-    transform = tf.convert_to_tensor([[[0.0, 0.0], [-0.2, 0], [0, 0.3], [0.2, 0]]])
-    transform = tf.manip.tile(transform, multiples=[batch_size, 1, 1])
-    delta = tf.matmul(transform, wh)
-    bbx = bbx + delta
-    bbx = tf.reshape(bbx, [batch_size, 4])
-    return
-    
-    
-def flip_landmark_lr(pts):
-    '''
-    pts: 2D tensor [m, 2], where m is the pts num of a landmark, typically 68,  2 is the x, y coordinate
-    '''
-    index_new = [16, 15, 14, 13, 12, 11, 10, 9,
+LANDMARK_68_FLIP_MATRIX = [16, 15, 14, 13, 12, 11, 10, 9,
                  8,
                  7, 6, 5, 4, 3, 2, 1, 0,
                  26, 25, 24, 23, 22,
@@ -70,12 +33,78 @@ def flip_landmark_lr(pts):
                  67,
                  66,
                  65]
+
+def extend_bbx_stage1(bbx):
+    '''
+    extend the bbx by 0.2x bbx_width left,
+                      0.2x bbx_width right,
+                      0.3x bbx_height down
+    bbx: 1D tensor [ymin, xmin, ymax, xmax]
+    return: 1D tensor, with shape [4], dtype float32, [ymin, xmin, ymax, xmax]
+    '''
+    # [w, h]
+    bbx = tf.reshape(bbx, [4, 1])
+    wh = tf.matmul([[0.0, -1.0, 0.0, 1.0], [-1.0, 0.0, 1.0, 0.0]], bbx)
+    delta = tf.matmul([[0.0, 0.0], [-0.2, 0], [0, 0.3], [0.2, 0]], wh)
+    bbx = bbx + delta
+    bbx = tf.reshape(bbx, [4])
+    return bbx
+
+def extend_bbx_stage1_batch(bbx):
+    '''
+    bbx: 2D tensor, shape [batch_size, 4]
+    return: 2D tensor, with shape [batch_size, 4], dtype float32, [ymin, xmin, ymax, xmax]
+    '''    
+    bbx = tf.reshape(bbx, [-1, 4, 1])
+    transform = tf.convert_to_tensor([[[0.0, -1.0, 0.0, 1.0], [-1.0, 0.0, 1.0, 0.0]]])
+    shape = tf.shape(bbx)
+    batch_size = shape[0]
+    transform = tf.manip.tile(transform, multiples=[batch_size, 1, 1])
+    wh = tf.matmul(transform, bbx)
+    transform = tf.convert_to_tensor([[[0.0, 0.0], [-0.2, 0], [0, 0.3], [0.2, 0]]])
+    transform = tf.manip.tile(transform, multiples=[batch_size, 1, 1])
+    delta = tf.matmul(transform, wh)
+    bbx = bbx + delta
+    # (N, 4)
+    bbx = tf.reshape(bbx, [batch_size, 4])
+    return bbx
+    
+    
+def flip_landmark_lr(pts):
+    '''
+    pts: 2D tensor [m, 2], where m is the pts num of a landmark, typically 68,  2 is the x, y coordinate
+    '''
+    index_new = LANDMARK_68_FLIP_MATRIX
     depth = len(index_new)
     one_hot = tf.one_hot(indices=index_new, depth=depth)
     pts = tf.matmul(one_hot, pts)
     delta_y1 = tf.matmul(pts, [[1.0,0.0],[0.0,-1.0]])
     const_y2 = np.repeat([[0, 1.0]], repeats=depth, axis=0)
-    pts = const_y2 + pts
+    pts = const_y2 + delta_y1
+    return pts
+
+def flip_landmark_lr_batch(pts):
+    '''
+    pts: 3-D Tensor of shape [batch_size, m, 2], dtype tf.float32
+    '''
+    index_new = LANDMARK_68_FLIP_MATRIX
+    batch_size = tf.shape(pts)[0]
+
+    depth = len(index_new)
+    # (d, d)
+    one_hot = tf.one_hot(indices=index_new, depth=depth)
+    # (N, d, d)
+    one_hot = tf.broadcast_to(one_hot, shape=[batch_size, depth, depth])
+    # (N, d, 2) <- (N, d, d) x (N, d, 2)
+    pts = tf.matmul(one_hot, pts)
+    # (N, 2, 2)
+    tmp = tf.broadcast_to([[1.0, 0.0], [0.0, -1.0]], shape=[batch_size, 2, 2])
+    # (N, d, 2) <- (N, d, 2) x (N, 2, 2)
+    delta_y1 = tf.matmul(pts, tmp)
+    # (N, d, 2)
+    const_y2 = tf.broadcast_to([0, 1.0], shape=[batch_size, depth, 2])
+    # (N, d, 2) <- (N, d, 2) + (N, d, 2)
+    pts = const_y2 + delta_y1
     return pts
 
 def flip_lr(image, pts):
@@ -175,11 +204,66 @@ def extend_bbx_stage2(bbx, aspect_ratio):
     bbx = tf.reshape(bbx, [4])
     return bbx
 
+
+def extend_bbx_stage2_batch(bbx, aspect_ratio):
+    """
+    bbx: 2-D Tensor, with shape (batch_size, 4)
+    aspect_ratio: 1-D Tensor, with shape (batch_size)
+    """
+    if DEBUG_LEVEL > 9:
+        tf.identity(bbx, name='extend_bbx_stage2_batch_init_bbx')
+        tf.identity(aspect_ratio, name='extend_bbx_stage2_batch_init_aspect_ratio')
+    batch_size = tf.shape(bbx)[0]
+    # (N, 4, 1)
+    bbx = tf.reshape(bbx, [batch_size, 4, 1])
+    # (N)
+    zeros = tf.zeros(shape=(batch_size), dtype=tf.float32)
+    # (N)
+    ones = tf.ones(shape=(batch_size), dtype=tf.float32)
+    # (N, 4)
+    r2 = tf.stack([-aspect_ratio, zeros, aspect_ratio, zeros], axis=1)
+    r1 = tf.stack([zeros, -ones, zeros, ones], axis=1)
+    # (N, 2, 4)
+    r = tf.stack([r1, r2], axis=1)
+    if DEBUG_LEVEL > 9:
+        tf.identity(r, name='debug_extend_bbx_stage2_batch_r')
+    # (N, 2, 1) <- (N, 2, 4) x (N, 4, 1)
+    wh = tf.matmul(r, bbx)
+    if DEBUG_LEVEL > 9:
+        tf.identity(wh, name='debug_extend_bbx_stage2_batch_wh')
+    
+    # (N, 1, 1) <- (N, 1, 2) x (N, 2, 1)
+    delta = 0.5 * tf.matmul(tf.broadcast_to([[-1.0, 1.0]], shape=[batch_size, 1, 2]), wh)
+    # (N, 4, 1)
+    delta = tf.tile(delta, [1, 4, 1])
+    # (N, 4)
+    r = tf.stack([-1.0/aspect_ratio, ones, -1.0/aspect_ratio, ones], axis=1)
+    # (N, 4, 1)
+    r = tf.stack([r], axis=2)
+    # (N, 4, 1) <- mul (N, 4, 1) (N, 4, 1)
+    delta = tf.multiply(r, delta)
+    # (N, 4, 1) <- max (), (N, 4, 1)
+    delta = tf.maximum(0.0, delta)
+    # (N, 4, 1) <- mul (4, 1) (N, 4, 1)  
+    delta = tf.multiply([[-1.0], [-1.0], [1.0], [1.0]], delta)
+    # (N, 4, 1) <- add (N, 4, 1) (N, 4, 1)
+    bbx = bbx + delta
+    # (N, 4) <- reshape (N, 4, 1) (N, 4)
+    bbx = tf.reshape(bbx, [batch_size, 4])
+    if DEBUG_LEVEL > 9:
+        tf.identity(bbx, name='extend_bbx_stage2_batch_final_bbx')
+    return bbx
+    
+
 def extend_bbx(bbx, aspect_ratio):
     bbx = extend_bbx_stage1(bbx)
     bbx = extend_bbx_stage2(bbx, aspect_ratio)
     return bbx
 
+def extend_bbx_batch(bbx, aspect_ratio):
+    bbx = extend_bbx_stage1_batch(bbx)
+    bbx = extend_bbx_stage2_batch(bbx, aspect_ratio)
+    return bbx
 
 def get_extend_matrix(bbx):
     '''
@@ -207,6 +291,47 @@ def get_extend_matrix(bbx):
     return tmp
 
 
+def get_extend_matrix_batch(bbx):
+    """
+    """
+    shape = tf.shape(bbx)
+    batch_size = shape[0]
+    ymin = bbx[:, 0]
+    xmin = bbx[:, 1]
+    ymax = bbx[:, 2]
+    xmax = bbx[:, 3]
+    exmin = tf.maximum(0.0, 0.0-xmin)
+    exmax = tf.maximum(0.0, xmax-1.0)
+    eymin = tf.maximum(0.0, 0.0-ymin)
+    eymax = tf.maximum(0.0, ymax-1.0)
+    
+    ex = exmin+exmax
+    fx = ex+1.0
+    ey = eymin+eymax
+    fy = ey+1.0
+    
+    zeros = tf.zeros(shape=(batch_size), dtype=tf.float32)
+    ones = tf.ones(shape=(batch_size), dtype=tf.float32)
+    
+    a11 = 1.0 / fx
+    a12 = zeros
+    a13 = exmin / fx
+    a1 = tf.stack([a11, a12, a13], axis=1)
+    
+    a21 = zeros
+    a22 = 1.0 / fy
+    a23 = eymin / fy
+    a2 = tf.stack([a21, a22, a23], axis=1)
+    
+    a31 = zeros
+    a32 = zeros
+    a33 = ones
+    a3 = tf.stack([a31, a32, a33], axis=1)
+    
+    a = tf.stack([a1, a2, a3], axis=1)
+    return a
+    
+
 def extend_image(image, extend_matrix):
     """
     image: 3-D Tensor of shape (H, W, C), does not care about the number of C
@@ -226,6 +351,24 @@ def extend_image(image, extend_matrix):
     return image
 
 
+def extend_image_batch(image, extend_matrix, target_height=256, target_width=256):
+    shape = tf.shape(image)
+    batch_size = shape[0]
+    exmin = extend_matrix[:, 0, 2] / extend_matrix[:, 0, 0]
+    exmax = 1.0 / extend_matrix[:, 0, 0] - exmin - 1.0
+    eymin = extend_matrix[:, 1, 2] / extend_matrix[:, 1, 1]
+    eymax = 1.0 / extend_matrix[:, 1, 1] - eymin - 1.0
+    shape = tf.shape(image)
+    #width = shape[2]
+    #height = shape[1]
+    
+    boxes = tf.stack([-eymin, -exmin, eymax + 1.0, exmax + 1.0], axis=1)
+    
+    image = tf.image.crop_and_resize(image, boxes=boxes, box_ind=tf.range(start=0, limit=batch_size, dtype=tf.int32),
+                                     crop_size=[target_height, target_width])
+    return image
+
+
 def get_crop_matrix(bbx):
     ymin = bbx[0]
     xmin = bbx[1]
@@ -239,6 +382,48 @@ def get_crop_matrix(bbx):
                     [0.0, 0.0, 1.0]]
     tmp = tf.convert_to_tensor(tmp)
     return tmp
+
+
+def get_crop_matrix_batch(bbx):
+    """Return the batched transform tensor from the giving bounding boxes
+    bbx: 2-D Tensor with shape (batch_size, 4)
+    """
+    shape = tf.shape(bbx)
+    batch_size = shape[0]
+    bbx = tf.reshape(bbx, [batch_size, 4, 1])
+
+    tmp = tf.convert_to_tensor([[0.0, -1.0, 0.0, 1.0], 
+                                [-1.0, 0.0, 1.0, 0.0]])
+    tmp = tf.broadcast_to(tmp, shape=[batch_size, 2, 4])
+    # (N, 2, 1) <- (N, 2, 4) x (N, 4, 1)
+    cwh = tf.matmul(tmp, bbx)
+    cwh = tf.div(1.0, cwh)
+    # (N, 3, 1)
+    cwh = tf.pad(cwh, paddings=((0, 0), (0, 1), (0, 0)), mode='CONSTANT', constant_values=1.0)
+    # (3, 3)
+    eye = tf.eye(3)
+    # (N, 3, 3)
+    eye = tf.broadcast_to(eye, shape=[batch_size, 3, 3])
+    # (N, 3)
+    cwh = tf.reshape(cwh, [batch_size, 3])
+    # (N, 3, 3)
+    cwh = tf.linalg.diag(cwh)
+    
+    # (2, 4)
+    xym = tf.convert_to_tensor([[0.0, -1.0, 0.0, 0.0], 
+                                [-1.0, 0.0, 0.0, 0.0]])
+    # (N, 2, 4)
+    xym = tf.broadcast_to(xym, shape=[batch_size, 2, 4])
+    # (N, 2, 1) <- (N, 2, 4) x (N, 4, 1)
+    xym = tf.matmul(xym, bbx)
+    # (N, 3, 3)
+    xym = tf.pad(xym, paddings=((0, 0), (0, 1), (2, 0)), mode='CONSTANT', constant_values=0.0)
+    xym = eye + xym
+    
+    # (N, 3, 3) <- (N, 3, 3) x (N, 3, 3)
+    trans = tf.matmul(cwh, xym)
+    return trans
+    
 
 
 def crop_image(image, crop_matrix):
@@ -260,6 +445,28 @@ def crop_image(image, crop_matrix):
     return image
 
 
+def crop_image_batch(image, crop_matrix, target_height=256, target_width=256):
+    """
+    image: 4-D Tensor of shape (batch_size, H, W, C), does not care about the number of C
+    warning: this function has different semantics from crop_image
+             the cropped image will be bilinearly resized to the original size
+             since it works on batch mode
+    """
+    print(crop_matrix.shape)
+    xmin = tf.div(-crop_matrix[:,0, 2], crop_matrix[:,0, 0])
+    xmax = 1.0 / crop_matrix[:,0, 0] + xmin
+    ymin = tf.div(-crop_matrix[:,1, 2], crop_matrix[:,1, 1])
+    ymax = 1.0 / crop_matrix[:,1, 1] + ymin
+    
+    shape = tf.shape(image)
+    batch_size = shape[0]
+    #height = tf.cast(shape[1], tf.float32)
+    #width = tf.cast(shape[2], tf.float32)
+    boxes = tf.stack(values=[ymin, xmin, ymax, xmax], axis=1)
+    image = tf.image.crop_and_resize(image, boxes=boxes, box_ind=tf.range(start=0, limit=batch_size, dtype=tf.int32), crop_size=[target_height, target_width])
+    return image
+
+
 def transform_pts(pts, transform_matrix):
     '''
     pts: (M, 2) matrix
@@ -274,6 +481,23 @@ def transform_pts(pts, transform_matrix):
     pts = tf.pad(pts, paddings=((0,0), (0,1)), mode='CONSTANT', constant_values=1.0)
     pts = tf.matmul(pts, tf.transpose(transform_matrix))
     pts = pts[:, :2]
+    return pts
+
+def transform_pts_batch(pts, transform_matrix):
+    '''
+    pts: 3-D Tensor, with shape (batch_size, M, 2)
+         the first column indicates the x coordinates,
+         the second column indatecs the y coordinates
+    
+    transform_matrix: (batch_size, 3, 3) matrix
+
+    [ x'] = [ T00, T01, T02 ] [x]
+    [ y']   [ T10, T11, T12 ] [y]
+    [ 1 ]   [ T20, T21, T22 ] [1]
+    '''
+    pts = tf.pad(pts, paddings=((0,0), (0,0), (0,1)), mode='CONSTANT', constant_values=1.0)
+    pts = tf.matmul(pts, tf.matrix_transpose(transform_matrix))
+    pts = pts[:, :, :2]
     return pts
 
 
@@ -316,9 +540,60 @@ def infer_preprocess(image, bbx):
 
     return image, trans_matrix
 
+'''
+def infer_preprocess_map(images, boxes):
+    """
+    images: 4-D Tensor, with shape (batch_size, H, W, C)
+    boxes: 2-D Tensor, with shape (batch_size, 4)
+    """
+    def _infer_preprocess_with_resize(image, bbx):
+'''     
+
+
+def infer_preprocess_batch(image, bbx):
+    shape = tf.shape(image)
+    batch_size = shape[0]
+    h = tf.cast(shape[1], tf.float32)
+    w = tf.cast(shape[2], tf.float32)
+    aspect_ratio = h / w
+    aspect_ratio = tf.broadcast_to(aspect_ratio, shape=[batch_size])
+    bbx = extend_bbx_batch(bbx, aspect_ratio)
+    extend_matrix = get_extend_matrix_batch(bbx)
+    
+    ymin = bbx[:, 0]
+    xmin = bbx[:, 1]
+    ymax = bbx[:, 2]
+    xmax = bbx[:, 3]
+    
+    a1 = tf.stack([xmin, ymin], axis=1)
+    a2 = tf.stack([xmax, ymax], axis=1)
+    bbx_pts = tf.stack([a1, a2], axis=1)
+    
+    bbx_pts = transform_pts_batch(bbx_pts, extend_matrix)
+    xmin = bbx_pts[:, 0, 0]
+    ymin = bbx_pts[:, 0, 1]
+    xmax = bbx_pts[:, 1, 0]
+    ymax = bbx_pts[:, 1, 1]
+    
+    bbx_crop = tf.stack([ymin, xmin, ymax, xmax], axis=1)
+    crop_matrix = get_crop_matrix_batch(bbx_crop)
+    
+    image = extend_image_batch(image, extend_matrix)
+    image = crop_image_batch(image, crop_matrix)
+    trans_matrix = tf.matmul(crop_matrix, extend_matrix)
+    
+    return image, trans_matrix
+   
+
 def infer_postprocess(landmark, trans_matrix):
     inv_matrix = tf.linalg.inv(trans_matrix)
     landmark = transform_pts(landmark, inv_matrix)
+    landmark = tf.clip_by_value(landmark, 0.0, 1.0)
+    return landmark
+
+def infer_postprocess_batch(landmark, trans_matrix):
+    inv_matrix = tf.linalg.inv(trans_matrix)
+    landmark = transform_pts_batch(landmark, inv_matrix)
     landmark = tf.clip_by_value(landmark, 0.0, 1.0)
     return landmark
 
@@ -358,11 +633,15 @@ def pts2heatmap(pts, h=64, w=64, sigma=1, singular=False):
 
 
 def heatmap2pts(heatmap):
-    '''
+    """
     heatmap: NHWC tensor
     
     NOTE: This is an equivalent implementation of heatmap2pts
-    '''
+    Warning: This function is implemented in batch mode, which is not consistent
+             to the naming convention of this function. It will be reimplemented
+             in non-batch mode, any call to this function should move to 
+             `heatmap2pts_batch()` instead
+    """
     shape = tf.shape(heatmap)
     h = shape[1]
     w = shape[2]
@@ -373,6 +652,19 @@ def heatmap2pts(heatmap):
     cols = indice % w
     ys = (tf.cast(rows, dtype=tf.float32) + 0.5) / tf.cast(h, tf.float32)
     xs = (tf.cast(cols, dtype=tf.float32) + 0.5) / tf.cast(w, tf.float32)
+    pts = tf.stack([xs, ys], axis=2)
+    return pts
+
+
+def heatmap2pts_batch(heatmap, target_height=256, target_width=256):
+    shape = tf.shape(heatmap)
+    c = shape[3]
+    heatmap = tf.reshape(heatmap, [-1, target_height * target_width, 68])
+    indice = tf.cast(tf.argmax(heatmap, axis=1), dtype=tf.int32)
+    rows = tf.cast(indice / target_width, dtype=tf.int32)
+    cols = indice % target_width
+    ys = (tf.cast(rows, dtype=tf.float32) + 0.5) / tf.cast(target_height, tf.float32)
+    xs = (tf.cast(cols, dtype=tf.float32) + 0.5) / tf.cast(target_width, tf.float32)
     pts = tf.stack([xs, ys], axis=2)
     return pts
 
