@@ -382,15 +382,31 @@ def heatmap2pts(heatmap):
     '''
     heatmap: HWC
     '''
-    h, w, c = heatmap.shape
-    heatmap = np.reshape(heatmap, [-1, c])
-    indices = np.argmax(heatmap, axis=0)
-    rows = indices / w
-    cols = indices % w
-    ys = (rows + 0.5) / h
-    xs = (cols + 0.5) / w
-    pts = np.array([xs, ys]).T
+    if heatmap.ndim == 3:
+        h, w, c = heatmap.shape
+        heatmap = np.reshape(heatmap, [-1, c])
+        indices = np.argmax(heatmap, axis=0)
+        rows = indices / w
+        cols = indices % w
+        ys = (rows + 0.5) / h
+        xs = (cols + 0.5) / w
+        pts = np.array([xs, ys]).T
+    elif heatmap.ndim == 4:
+        n, h, w, c = heatmap.shape
+        heatmap = np.reshape(heatmap, [n, -1, c])
+        indices = np.argmax(heatmap, axis=1)
+        rows = indices / w
+        cols = indices % w
+        ys = (rows + 0.5) / h
+        xs = (cols + 0.5) / w
+        pts = np.array([xs, ys])
+        # transpose (2, N, m) into (N, m, 2)
+        pts = np.transpose(pts, [1, 2, 0])
+    else:
+        raise ValueError('dimension of heatmap not valid: ' + str(heatmap.shape))
     return pts
+
+
 
 
 

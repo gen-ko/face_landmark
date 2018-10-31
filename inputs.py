@@ -34,7 +34,7 @@ def _parse_map_stage1(record):
     landmark = tf.reshape(landmark, [68, 2])
     return image_decoded, landmark
 
-def _parse_map_stage2(image, landmark, detector=None, augmentation=None, preserve_bbx=False, generate_heatmap=False):
+def _parse_map_stage2(image, landmark, sigma=5, detector=None, augmentation=None, preserve_bbx=False, generate_heatmap=False):
     """works outside tf graph
     image: 3-D np.ndarray, HWC, uint8, RGB, range from [0, 255]
     landmark: 2-D np.ndarray, (68, 2), range from [0, 1] (exceeding allowed)
@@ -51,7 +51,10 @@ def _parse_map_stage2(image, landmark, detector=None, augmentation=None, preserv
     if generate_heatmap:
         landmark = preprocess.pts2heatmap(landmark, h=256, w=256, sigma=sigma, singular=False).astype(np.float32)
 
+    landmark = landmark.astype(np.float32)
+    
     if preserve_bbx:
+        bbx = bbx.astype(np.float32)
         return image, landmark, bbx
     else:
         return image, landmark
@@ -67,6 +70,13 @@ def _parse_map_stage3(image, landmark):
     image = tf.image.resize_images(image, size=(256, 256))
     landmark.set_shape([256, 256, 68])
     return image, landmark
+
+def _parse_map_stage4(image, *args):
+    image = image * 2 - 1.0
+    res = [image]
+    for arg in args:
+        res.append(arg)
+    return res
 
 
 def _augmentation_tf(image):
@@ -94,13 +104,15 @@ def input_fn(record_path, batch_size=16, sigma=1, detector=None, is_eval=False):
     dataset = dataset.map(_parse_map_stage1, num_parallel_calls=batch_size)
     if not is_eval:
         dataset = dataset.map(lambda img, ldm: tuple(tf.py_func(lambda x, y: _parse_map_stage2(x, y, 
+                                                        sigma=sigma,
                                                         detector=detector,
                                                         augmentation=_augmentation_np,
                                                         preserve_bbx=False, generate_heatmap=True), inp=[img, ldm], Tout=[tf.uint8, tf.float32])), num_parallel_calls=batch_size)
     else:
         dataset = dataset.map(
             lambda img, ldm: tuple(tf.py_func(lambda x, y: _parse_map_stage2(x, y, 
-                detector=lambda x: _detector(x)
+                sigma=sigma,
+                detector=detector,
                 augmentation=None,
                 preserve_bbx=True, generate_heatmap=False), inp=[img, ldm], Tout=[tf.uint8, tf.float32, tf.float32])), num_parallel_calls=batch_size)
     if not is_eval:
@@ -108,8 +120,9 @@ def input_fn(record_path, batch_size=16, sigma=1, detector=None, is_eval=False):
     else:
         dataset = dataset.map(lambda img, ldm, bbx: (*_parse_map_stage3(img, ldm), bbx), num_parallel_calls=batch_size)
     dataset = dataset.batch(batch_size)
-    if not is eval:
+    if not is_eval:
         dataset = dataset.map(lambda img, ldm: (_augmentation_tf(img), ldm))
+    dataset = dataset.map(_parse_map_stage4)
     dataset = dataset.prefetch(buffer_size=1)
     return dataset  
 

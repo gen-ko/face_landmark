@@ -21,9 +21,9 @@ def plot_cdf(x):
     plt.savefig('tmp.png')
     return
 
-pts = np.load('/barn2/yuan/westworld/pts_dump.npy')
-pts_real = np.load('/barn2/yuan/westworld/pts_real_dump.npy')
-d = np.load('/barn2/yuan/westworld/d_dump.npy')
+pts = np.load('/barn2/yuan/westworld/pts_dump3.npy')
+pts_real = np.load('/barn2/yuan/westworld/pts_real_dump3.npy')
+d = np.load('/barn2/yuan/westworld/d_dump3.npy')
 
 
 nme = metric.nme_batch(pts, pts_real, d)
