@@ -1,6 +1,8 @@
 import tensorflow as tf
 
 def pool(x):
+    """a functional 2x2 average pooling
+    """
     with tf.variable_scope('pool'):
         layer = tf.layers.average_pooling2d(
                 inputs=x,
@@ -11,7 +13,36 @@ def pool(x):
     return layer
 
 
-def bn(x, training):
+class BatchNorm(object):
+    def __init__(self):
+        self.bn = tf.layers.BatchNormalization(
+                axis=-1,
+                momentum=0.99,
+                epsilon=0.001,
+                center=True,
+                scale=True,
+                beta_initializer=tf.zeros_initializer(),
+                gamma_initializer=tf.ones_initializer(),
+                moving_mean_initializer=tf.zeros_initializer(),
+                moving_variance_initializer=tf.ones_initializer(),
+                beta_regularizer=tf.contrib.layers.l2_regularizer(scale=0.00001, scope=None),
+                gamma_regularizer=None,
+                beta_constraint=None,
+                gamma_constraint=None,
+                renorm=False,
+                renorm_clipping=None,
+                renorm_momentum=0.99,
+                fused=None,
+                trainable=True,
+                virtual_batch_size=None,
+                adjustment=None,
+                name=None)
+
+    def __call__(self, x, training):
+        return self.bn(x, training=training)
+
+
+def bn(x, training, name=None, reuse=None):
     with tf.variable_scope('batchnorm'):
         layer = tf.layers.batch_normalization(
                 x,
@@ -30,8 +61,8 @@ def bn(x, training):
                 gamma_constraint=None,
                 training=training,
                 trainable=True,
-                name=None,
-                reuse=None,
+                name=name,
+                reuse=reuse,
                 renorm=False,
                 renorm_clipping=None,
                 renorm_momentum=0.99,
@@ -202,6 +233,7 @@ def hourglass(x, level, training):
     h = int(h * 2)
     w = int(w * 2)
     with tf.variable_scope('up2'):
+        # upsampling
         up2 = tf.image.resize_nearest_neighbor(low3, size=(h, w))
 
     out = up1 + up2
@@ -213,25 +245,29 @@ def fan(x, num_modules=1, reuse=None, training=True):
     x NHWC image tensor, where H = 256, W = 256, C = 3, dtype= tf.float32, range from [-1, 1]
     '''
     x = tf.identity(x, name='image_tensor')
+    x_dy, x_dx = tf.image.image_gradients(x)
     shape = tf.shape(x)
     shape = shape[1:3]
 
+    x = tf.concat([x, x_dx, x_dy], axis=3, name='stacked_gradients')
+    
     with tf.variable_scope('fan', reuse=reuse):
         # Base
+        # feature extractor
         with tf.variable_scope('base'):
             with tf.variable_scope('conv1'):
-                conv1 = conv7x7(x, 64)
+                conv1 = conv7x7(x, 128)
                 bn1 = bn(conv1, training=training)
                 relu1 = tf.nn.relu(bn1)
             with tf.variable_scope('conv2'):
-                conv2 = conv_block(relu1, 128, training=training)
+                conv2 = conv_block(relu1, 168, training=training)
                 pool1 = pool(conv2)
             with tf.variable_scope('conv3'):
-                conv3 = conv_block(pool1, 128, training=training)
+                conv3 = conv_block(pool1, 204, training=training)
             with tf.variable_scope('conv4'):
                 conv4 = conv_block(conv3, 256, training=training)
 
-        # Cat
+        # Concatenated modules
         previous = conv4
         outputs = []
         for i in range(num_modules):

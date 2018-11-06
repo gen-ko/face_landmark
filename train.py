@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -13,6 +14,7 @@ from face_landmark import preprocess_tf
 from face_landmark import metric
 
 def print_to_file(*args, **kwargs):
+    """a print() wrapper that prints to stdout along with a log file at the same time"""
     filename = kwargs['filename']
     # also print to stdout
     print(*args)
@@ -21,6 +23,7 @@ def print_to_file(*args, **kwargs):
     return
 
 class Detector(object):
+    """A wrapper class for object detection in landmark use"""
     def __init__(self):
         self.d = face_detector.FaceDetector()
 
@@ -32,6 +35,7 @@ class Detector(object):
         return bbx
 
 class FAN(object):
+    """Refer to the original paper https://arxiv.org/pdf/1703.07332.pdf"""
     def __init__(self, num_modules=4, learning_rate=0.000001,
                 override_face_detector=None,
                 train_path='/barn2/yuan/datasets/300wlp_20181002.tfrecord',
@@ -44,10 +48,8 @@ class FAN(object):
                 override_loss_op=None,
                 override_train_op=None,
                 checkpoint_path=None,
-                bn_training=False,
                 save_path='saved_model/face_landmark'):
         self.graph = tf.Graph()
-        self.bn_training = bn_training
         with self.graph.as_default():
             self.sess = tf.Session()
             with self.sess.as_default():
@@ -101,17 +103,36 @@ class FAN(object):
                 self.saver = tf.train.Saver()
                 if checkpoint_path is not None:
                     self.saver.restore(self.sess, checkpoint_path)
+                else:
+                    init_op = tf.global_variables_initializer()
+                    self.sess.run(init_op)
                 self.save_path = save_path
         self.current_epoch = 0
         return
 
     def load(self, path):
+        """Load the checkpoint of current graph.
+        path is the target filename prefix,
+        for example,
+        path = 'foo/bar'
+        then the checkpoint will be loaded from
+        'foo/bar.idex, foo/bar.meta, foo/bar.data-00000-of-00001'
+        If the checkpoint has variables with the same name but different op type,
+        it is possible that the load will fail.
+        """
         with self.graph.as_default():
             with self.sess.as_default():
                 self.saver.restore(self.sess, path)
         return
 
     def save(self, path):
+        """Save the checkpoint of current graph.
+        path is the destination filename prefix,
+        for example,
+        path = 'foo/bar'
+        then the checkpoint will be saved as
+        'foo/bar.index, foo/bar.meta, foo/bar.data-00000-of-00001'
+        """
         with self.graph.as_default():
             with self.sess.as_default():
                 self.saver.save(self.sess, path)
@@ -170,9 +191,6 @@ class FAN(object):
                 tf.train.write_graph(frozen_graph_def , export_dir, 'frozen_graph.pb', as_text=False)
         return
 
-
-
-
     def step_train(self):
         with self.graph.as_default():
             with self.sess.as_default():
@@ -214,11 +232,13 @@ class FAN(object):
                         loss += self.step_train()
                         n_steps += 1
                     except tf.errors.OutOfRangeError:
+                        n_steps += 1
                         self.current_epoch += 1
                         self.save(self.save_path + str(self.current_epoch))
+                        break
 
                     if step_cnt % 20 == 0:
-                        print_to_file('epoch:',  self.current_epoch , 'step_cnt:', step_cnt, 'loss:', loss / n_steps, filename='train_v4_log.txt')
+                        print_to_file('epoch:',  self.current_epoch , 'step_cnt:', step_cnt, 'loss:', loss / n_steps, filename='./cache/training_log.txt')
                         loss = 0.0
                         n_steps = 0
 
@@ -227,7 +247,7 @@ class FAN(object):
                         apts = []
                         apts_real = []
                         ad = []
-                        for i in range(20):
+                        while True:
                             try:
                                 pts, pts_real, d = self.step_eval()
                                 apts.extend(pts)
@@ -239,7 +259,7 @@ class FAN(object):
                         apts_real = np.array(apts_real)
                         ad = np.array(ad)
                         nme = metric.nme_batch(apts, apts_real, ad)
-                        print_to_file('epoch:', self.current_epoch, 'step_cnt:', step_cnt, 'nme:', nme, filename='train_v4_log.txt')
+                        print_to_file('epoch:', self.current_epoch, 'step_cnt:', step_cnt, 'nme:', nme, filename='./cache/training_log.txt')
         return
 
 
@@ -249,17 +269,19 @@ def parse_arguments(argv):
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint_path', dest='checkpoint_path', type=str, default=None)
-    parser.add_argument('--save_path', dest='save_path', type=str, default=None)
+    parser.add_argument('--export_dir', dest='export_dir', type=str, default=None)
     return parser.parse_args()
 
-def main():
-    fan = FAN(checkpoint_path='/barn2/yuan/saved_model/face_landmark/v2_80_8891_0162'
-              ,bn_training=True)
+def main(argv):
+    if argv.export_dir is None:
+        exit(0)
+    fan = FAN(checkpoint_path=argv.checkpoint_path)
     for i in range(100):
         fan.epoch_train_and_eval()
-        fan.save('/barn2/yuan/saved_model/face_landmark/r0.5_epoch_'+str(i))
-
+        fan.save(os.path.join(argv.export_dir, str(i)))
+    return
 
 
 if __name__ == '__main__':
-    main()
+    argv = parse_arguments(sys.argv)
+    main(argv)
