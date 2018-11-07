@@ -12,7 +12,29 @@ from face_landmark import inputs
 from face_landmark import preprocess
 from face_landmark import preprocess_tf
 from face_landmark import metric
+import time
 
+CUR_DIR = os.path.dirname(os.path.realpath(__file__))
+'''
+def plot_base(v1, label, save_path):
+    #plt.figure(1)
+    label_1 = 'train' + ' ' + label
+    line_1, = plt.plot(v1, label=label_1)
+    plt.legend(handles=[line_1])
+    plt.xlabel('epoch')
+    plt.ylabel(label)
+    #plt.title(self.titletext)
+    plt.savefig(save_path)
+    plt.close()
+    return
+
+def plot_metric(metric_train: list, filename: str=None):
+    if filename is None:
+        filename = 'metric_plot.png'
+    v1 = metric_train
+    plot_base(v1, 'loss', filename)
+    return
+'''
 def print_to_file(*args, **kwargs):
     """a print() wrapper that prints to stdout along with a log file at the same time"""
     filename = kwargs['filename']
@@ -36,7 +58,9 @@ class Detector(object):
 
 class FAN(object):
     """Refer to the original paper https://arxiv.org/pdf/1703.07332.pdf"""
-    def __init__(self, num_modules=4, learning_rate=0.000001,
+    def __init__(self, 
+                num_modules=4,
+                learning_rate=0.0001,
                 override_face_detector=None,
                 train_path='/barn2/yuan/datasets/300wlp_20181002.tfrecord',
                 eval_path='/barn2/yuan/datasets/aflw2000_3d_20181002.tfrecord',
@@ -165,8 +189,6 @@ class FAN(object):
                 print(tmp.shape)
                 tmp = model.fan(x=tmp, num_modules=4, reuse=True, training=False)[-1]
 
-
-
                 # convert heatmap to landmark coordinates
                 tmp = preprocess_tf.heatmap2pts(tmp)
                 tmp = tmp[0]
@@ -218,7 +240,8 @@ class FAN(object):
                 pts_raw = preprocess.infer_postprocess(pts, trans_matrix)
         return pts_raw, bbx
 
-    def epoch_train_and_eval(self):
+    def epoch_train_and_eval(self, log_filename: str):
+        log_filepath = os.path.join(CUR_DIR, 'cache', log_filename)
         with self.graph.as_default():
             with self.sess.as_default():
                 self.sess.run(self.train_iterator.initializer)
@@ -238,7 +261,7 @@ class FAN(object):
                         break
 
                     if step_cnt % 20 == 0:
-                        print_to_file('epoch:',  self.current_epoch , 'step_cnt:', step_cnt, 'loss:', loss / n_steps, filename='./cache/training_log.txt')
+                        print_to_file('epoch:',  self.current_epoch , 'step_cnt:', step_cnt, 'loss:', loss / n_steps, filename=log_filepath)
                         loss = 0.0
                         n_steps = 0
 
@@ -259,7 +282,7 @@ class FAN(object):
                         apts_real = np.array(apts_real)
                         ad = np.array(ad)
                         nme = metric.nme_batch(apts, apts_real, ad)
-                        print_to_file('epoch:', self.current_epoch, 'step_cnt:', step_cnt, 'nme:', nme, filename='./cache/training_log.txt')
+                        print_to_file('epoch:', self.current_epoch, 'step_cnt:', step_cnt, 'nme:', nme, filename=log_filepath)
         return
 
 
@@ -270,6 +293,7 @@ def parse_arguments(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint_path', dest='checkpoint_path', type=str, default=None)
     parser.add_argument('--export_dir', dest='export_dir', type=str, default=None)
+    parser.add_argument('--log_filename', dest='log_filename', type=str, default='training_log.txt')
     return parser.parse_args()
 
 def main(argv):
@@ -277,7 +301,7 @@ def main(argv):
         exit(0)
     fan = FAN(checkpoint_path=argv.checkpoint_path)
     for i in range(100):
-        fan.epoch_train_and_eval()
+        fan.epoch_train_and_eval(log_filename=argv.log_filename)
         fan.save(os.path.join(argv.export_dir, str(i)))
     return
 
