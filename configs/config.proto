@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+
+message FaceLandmarkTrainingConfig {
+  string name = 1; 
+  int32 num_modules = 2;
+  int32 gpu_count = 3;
+  int32 input_size = 4;
+  bool use_image_gradient = 5;
+  int32 conv1_channels = 6;
+  int32 conv2_channels = 7;
+  int32 conv3_channels = 8;
+  int32 conv4_channels = 9;
+  int32 num_landmark_pts = 10;
+  int32 step_limit = 11;
+  repeated float learning_rates = 12;
+  repeated int32 learning_epoches = 13;
+  string initial_checkpoint_path = 14;
+  string train_record_path = 15;
+  string eval_record_path = 16;
+  int32 train_batch_size = 17;
+  int32 eval_batch_size = 18;
+  float train_sigma = 19;
+  float eval_sigma = 20;
+  string export_dir = 21;
+  string log_filename = 22;
+  int32 train_loss_interval = 23;
+  int32 eval_interval = 24;
+  string plot_dir = 25;
+}

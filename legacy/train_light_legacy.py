@@ -10,7 +10,7 @@ gpu_selector.auto_select(1, verbose=True)
 import numpy as np
 import tensorflow as tf
 
-from face_landmark import model
+from face_landmark import model_light as model
 from face_detection import face_detector
 from face_landmark import inputs
 from face_landmark import preprocess
@@ -23,7 +23,6 @@ from scipy.interpolate import BSpline
 import time
 import datetime  # timestamp
 import pdb
-import argparse
 
 
 CUR_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -172,28 +171,24 @@ def freeze_fan_graph(input_pb, output_pb):
 class FAN(object):
     """Refer to the original paper https://arxiv.org/pdf/1703.07332.pdf"""
     def __init__(self,
-                config,
+                num_modules=1,
                 learning_rate=0.0001,
                 override_face_detector=None,
+                train_path='/barn2/yuan/datasets/300wlp_20181002.tfrecord',
+                eval_path='/barn2/yuan/datasets/aflw2000_3d_20181002.tfrecord',
                 infer_graph=False,
+                train_batch_size=24,
+                eval_batch_size=24,
+                train_sigma=5.0,
+                eval_sigma=5.0,
                 override_loss_op=None,
                 override_train_op=None,
                 checkpoint_path=None,
                 save_path='saved_model/face_landmark',
+                train_loss_interval=20,
+                eval_interval=100,
                 epoch_num_offset=0):
         self.graph = tf.Graph()
-        num_modules = config.num_modules
-        train_path = config.train_record_path
-        eval_path = config.eval_record_path
-        train_batch_size = config.train_batch_size
-        eval_batch_size = config.eval_batch_size
-
-        train_sigma = config.train_sigma
-        eval_sigma = config.eval_sigma
-
-        train_loss_interval = config.train_loss_interval
-        eval_interval = config.eval_interval
-
         with self.graph.as_default():
             self.sess = tf.Session()
             with self.sess.as_default():
@@ -202,16 +197,15 @@ class FAN(object):
                 else:
                     self.detector = override_face_detector
                 reuse = False
-                if train_path is not None and train_path != "":
+                if train_path is not None:
                     self.train_dataset = inputs.input_fn(train_path,
                                                     batch_size=train_batch_size,
                                                     detector=self.detector.predict,
-                                                    sigma=train_sigma, is_eval=False,
-                                                    input_size=config.input_size,
-                                                    num_landmark_pts=config.num_landmark_pts)
+                                                    sigma=train_sigma, is_eval=False)
                     self.train_iterator = self.train_dataset.make_initializable_iterator()
                     self.train_image_tensor, self.train_heatmap_groundtruth_tensor = self.train_iterator.get_next()
-                    self.train_heatmap_inferred_tensors = model.fan(config=config, x=self.train_image_tensor, reuse=reuse, training=True)
+                    self.train_heatmap_inferred_tensors = model.fan(x=self.train_image_tensor, num_modules=num_modules,
+                                                                    reuse=reuse, training=True)
                     if override_loss_op is None:
                         self.loss_op = 0.0
                         for tensor in self.train_heatmap_inferred_tensors:
@@ -228,15 +222,13 @@ class FAN(object):
                     self.train_loss_interval = train_loss_interval
                     reuse = True
 
-                if eval_path is not None and eval_path != "":
+                if eval_path is not None:
                     self.val_dataset = inputs.input_fn(eval_path,
                                                     batch_size=eval_batch_size,
-                                                    detector=self.detector.predict,is_eval=True,
-                                                    input_size=config.input_size,
-                                                    num_landmark_pts=config.num_landmark_pts)
+                                                    detector=self.detector.predict,is_eval=True)
                     self.val_iterator  = self.val_dataset.make_initializable_iterator()
                     self.val_image_tensor, self.val_landmark_groundtruth_tensor, self.val_bbx_tensor = self.val_iterator.get_next()
-                    self.val_heatmap_inferred_tensors = model.fan(config=config, x=self.val_image_tensor,
+                    self.val_heatmap_inferred_tensors = model.fan(x=self.val_image_tensor, num_modules=num_modules,
                                                                     reuse=reuse, training=False)
                     assert isinstance(eval_interval, int)
                     self.eval_interval = eval_interval
@@ -247,11 +239,11 @@ class FAN(object):
                     image = (tf.cast(x=self.infer_image_tensor_processed, dtype=tf.float32) * 1.0 / 255.0)
                     image = tf.image.resize_images(image, size=(256, 256))
                     image = image * 2 - 1.0
-                    self.infer_heatmap_inferred_tensors = model.fan(config=config, x=image, reuse=reuse, training=False)
+                    self.infer_heatmap_inferred_tensors = model.fan(x=image, num_modules=num_modules, reuse=reuse, training=False)
                     reuse = True
 
                 self.saver = tf.train.Saver()
-                if checkpoint_path is not None and checkpoint_path != "":
+                if checkpoint_path is not None:
                     init_op = tf.global_variables_initializer()
                     self.sess.run(init_op)
                     self.saver.restore(self.sess, checkpoint_path)
@@ -317,8 +309,8 @@ class FAN(object):
                 pts_raw = preprocess.infer_postprocess(pts, trans_matrix)
         return pts_raw, bbx
 
-    def epoch_train_and_eval(self, log_filename: str, step_limit=None):
-        log_filepath = log_filename
+    def epoch_train_and_eval(self, log_filename: str):
+        log_filepath = os.path.join(CUR_DIR, 'cache', log_filename)
         with self.graph.as_default():
             with self.sess.as_default():
                 self.sess.run(self.train_iterator.initializer)
@@ -326,17 +318,19 @@ class FAN(object):
 
                 step_cnt = 0
 
-                while True and (step_cnt < step_limit or step_limit == 0):
+                while True:
                     step_cnt += 1
                     try:
                         loss += self.step_train()
                     except tf.errors.OutOfRangeError:
+                        self.current_epoch += 1
+                        self.save(os.path.join(self.save_path, str(self.current_epoch) + '-step-' + str(step_cnt)))
                         break
 
                     if step_cnt % self.train_loss_interval == 0:
                         print_to_file('epoch:',  self.current_epoch , 'step_cnt:', step_cnt, 'loss:', loss / self.train_loss_interval, filename=log_filepath)
                         loss = 0.0
-                        self.save(os.path.join(self.save_path, str(self.current_epoch) + '-step-' + str(step_cnt) + '.cp'))
+                        self.save(os.path.join(self.save_path, str(self.current_epoch) + '-step-' + str(step_cnt)))
 
                     if step_cnt % self.eval_interval == 0:
                         self.sess.run(self.val_iterator.initializer)
@@ -355,44 +349,93 @@ class FAN(object):
                         apts_real = np.array(apts_real)
                         ad = np.array(ad)
                         # NOTE: API to be modified to consistent with non-batch version
-                        nme = metric.nme_batch(apts_real, apts)
+                        nme = metric.nme_batch(apts, apts_real)
                         print(type(nme))
                         plot_cdfs([nme], save_path=os.path.join(self.save_path, str(self.current_epoch) + '-step-' + str(step_cnt) + '.jpg'), xmax=0.12)
                         print_to_file('epoch:', self.current_epoch, 'step_cnt:', step_cnt, 'nme:', nme.mean(), filename=log_filepath)
-                self.current_epoch += 1
-                self.save(os.path.join(self.save_path, str(self.current_epoch) + '.cp'))
         return
 
 
-def main(config):
-    if not os.path.isdir(config.export_dir):
-        print('WARNING: the export directory does not exist, creating one:', config.export_dir)
-        os.makedirs(name=config.export_dir, mode=0o777, exist_ok=False)
+def parse_arguments(argv):
+    """
+    When exec this script, only training mode is enabled
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--checkpoint_path', dest='checkpoint_path', type=str, default=None)
+    parser.add_argument('--export_dir', dest='export_dir', type=str, default=None)
+    parser.add_argument('--log_filename', dest='log_filename', type=str, default='training_log.txt')
+    parser.add_argument('--plot_dir', dest='plot_dir', type=str, default=None)
+    parser.add_argument('--train_loss_interval', dest='train_loss_interval', type=int, default=20)
+    parser.add_argument('--eval_interval', dest='eval_interval', type=int, default=100)
+    parser.add_argument('--freeze_graph', dest='freeze_graph', type=int, default=0)
+    parser.add_argument('--freeze_graph_target_path', dest='freeze_graph_target_path', type=str, default=None)
+    parser.add_argument('--freeze_graph_source_path', dest='freeze_graph_source_path', type=str, default=None)
+    return parser.parse_args(argv)
 
-    cur_epoch = 0
-    for epoch, lr in zip(config.learning_epoches, config.learning_rates):
-        if cur_epoch == 0:
-            checkpoint_path = config.initial_checkpoint_path
-        else:
-            checkpoint_path = os.path.join(config.export_dir, str(cur_epoch)+'.cp')
+def get_hashed_timestamp(timestamp) -> str:
+    hashcode = hashlib.sha256(str(timestamp).encode('utf8'))
+    return hashcode.hexdigest()
 
-        fan = FAN(config=config,
-                  checkpoint_path=checkpoint_path, 
-                  learning_rate=lr,
-                  save_path=config.export_dir,
-                  epoch_num_offset=cur_epoch)
-        for i in range(epoch):
-            fan.epoch_train_and_eval(log_filename=config.log_filename, step_limit=config.step_limit)
-            cur_epoch += 1
+
+def main(argv):
+    
+    if argv.freeze_graph != 0:
+        assert argv.freeze_graph_target_path is not None
+        assert argv.freeze_graph_source_path is not None
+        freeze_fan_graph(input_pb=argv.freeze_graph_source_path, output_pb=argv.freeze_graph_target_path)
+        return
+    if argv.export_dir is None:
+        exit(0)
+
+    # NOTE: THIS WILL SAVE MODEL TO <export_dir/> with <i.index>, <i.meta>, <i.data-00000-of-00001>
+
+    timestamp = datetime.datetime.now().timestamp()
+    hashcode = get_hashed_timestamp(timestamp)
+
+    if argv.export_dir is None:
+        export_dir = os.path.join(os.environ['SAVED_MODEL_PATH'], 'landmark' , '3dfan-' + hashcode)
+    else:
+        export_dir = argv.export_dir + '-' + hashcode
+
+    if not os.path.isdir(export_dir):
+        print('WARNING: the export directory does not exist, creating one:', export_dir)
+        os.makedirs(name=export_dir, mode=0o777, exist_ok=False)
+
+    fan = FAN(checkpoint_path=argv.checkpoint_path, 
+        train_loss_interval=argv.train_loss_interval, 
+        eval_interval=argv.eval_interval,
+        learning_rate=0.0001,
+        save_path=export_dir)
+    for i in range(3):
+        fan.epoch_train_and_eval(log_filename=argv.log_filename)
+
+    fan = FAN(checkpoint_path=os.path.join(export_dir, str(2)), 
+        train_loss_interval=argv.train_loss_interval, 
+        eval_interval=argv.eval_interval,
+        learning_rate=0.00005,
+        epoch_num_offset=3)
+    for i in range(10):
+        fan.epoch_train_and_eval(log_filename=argv.log_filename)
+
+    fan = FAN(checkpoint_path=os.path.join(argv.export_dir, str(3+10)), 
+        train_loss_interval=argv.train_loss_interval, 
+        eval_interval=argv.eval_interval,
+        learning_rate=0.00002,
+        epoch_num_offset=3+10)
+    for i in range(15):
+        fan.epoch_train_and_eval(log_filename=argv.log_filename)
+
+    fan = FAN(checkpoint_path=os.path.join(argv.export_dir, str(3+10+15)), 
+        train_loss_interval=argv.train_loss_interval, 
+        eval_interval=argv.eval_interval,
+        learning_rate=0.00001,
+        epoch_num_offset=3+10+15)
+    for i in range(20):
+        fan.epoch_train_and_eval(log_filename=argv.log_filename)
+
     return
 
-def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', dest='config_path', type=str, required=True)
-    return parser.parse_args()
 
 if __name__ == '__main__':
-    args = parse_arguments()
-    from face_landmark.configs import build_config
-    config = build_config.parse_config(args.config_path)
-    main(config)
+    argv = parse_arguments(sys.argv[1:])
+    main(argv)

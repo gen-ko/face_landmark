@@ -479,7 +479,7 @@ def transform_pts(pts, transform_matrix):
     [ 1 ]   [ T20, T21, T22 ] [1]
     '''
     pts = tf.pad(pts, paddings=((0,0), (0,1)), mode='CONSTANT', constant_values=1.0)
-    pts = tf.matmul(pts, tf.transpose(transform_matrix))
+    pts = tf.matmul(pts, tf.matrix_transpose(transform_matrix))
     pts = pts[:, :2]
     return pts
 
@@ -634,7 +634,7 @@ def pts2heatmap(pts, h=64, w=64, sigma=1, singular=False):
 
 def heatmap2pts(heatmap):
     """
-    heatmap: NHWC tensor
+    heatmap: HWC tensor
     
     NOTE: This is an equivalent implementation of heatmap2pts
     Warning: This function is implemented in batch mode, which is not consistent
@@ -642,10 +642,11 @@ def heatmap2pts(heatmap):
              in non-batch mode, any call to this function should move to 
              `heatmap2pts_batch()` instead
     """
+    raise DeprecationWarning('This function is deprecated, use heatmap2pts_batch instead')
     shape = tf.shape(heatmap)
-    h = shape[1]
-    w = shape[2]
-    c = shape[3]
+    h = shape[0]
+    w = shape[1]
+    c = shape[2]
     heatmap = tf.reshape(heatmap, [-1, h * w, c])
     indice = tf.cast(tf.argmax(heatmap, axis=1), dtype=tf.int32)
     rows = tf.cast(indice / w, dtype=tf.int32)
@@ -659,7 +660,7 @@ def heatmap2pts(heatmap):
 def heatmap2pts_batch(heatmap, target_height=256, target_width=256):
     shape = tf.shape(heatmap)
     c = shape[3]
-    heatmap = tf.reshape(heatmap, [-1, target_height * target_width, 68])
+    heatmap = tf.reshape(heatmap, [-1, target_height * target_width, c])
     indice = tf.cast(tf.argmax(heatmap, axis=1), dtype=tf.int32)
     rows = tf.cast(indice / target_width, dtype=tf.int32)
     cols = indice % target_width

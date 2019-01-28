@@ -1,0 +1,5 @@
+use_image_gradient: true
+train_record_path: "/barn2/yuan/datasets/300wlp_20181002.tfrecord"
+eval_record_path: "/barn2/yuan/datasets/aflw2000_3d_20181002.tfrecord"
+export_dir: "/barn1/yuan/saved_models/3d_fan_full_2019-01-07"
+

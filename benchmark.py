@@ -25,14 +25,12 @@ pts = np.load('/barn2/yuan/westworld/pts_dump3.npy')
 pts_real = np.load('/barn2/yuan/westworld/pts_real_dump3.npy')
 d = np.load('/barn2/yuan/westworld/d_dump3.npy')
 
-
 nme = metric.nme_batch(pts, pts_real, d)
 print(nme)
 
 pts = np.load('/barn2/yuan/westworld/pts_dump2.npy')
 pts_real = np.load('/barn2/yuan/westworld/pts_real_dump2.npy')
 d = np.load('/barn2/yuan/westworld/d_dump2.npy')
-
 
 nme = metric.nme_batch(pts, pts_real, d)
 print(nme)

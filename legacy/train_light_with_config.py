@@ -10,7 +10,7 @@ gpu_selector.auto_select(1, verbose=True)
 import numpy as np
 import tensorflow as tf
 
-from face_landmark import model
+from face_landmark import model_with_config as model
 from face_detection import face_detector
 from face_landmark import inputs
 from face_landmark import preprocess
@@ -23,7 +23,6 @@ from scipy.interpolate import BSpline
 import time
 import datetime  # timestamp
 import pdb
-import argparse
 
 
 CUR_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -182,17 +181,17 @@ class FAN(object):
                 save_path='saved_model/face_landmark',
                 epoch_num_offset=0):
         self.graph = tf.Graph()
-        num_modules = config.num_modules
-        train_path = config.train_record_path
-        eval_path = config.eval_record_path
-        train_batch_size = config.train_batch_size
-        eval_batch_size = config.eval_batch_size
+        num_modules = config.NUM_MODULES
+        train_path = config.TRAIN_PATH
+        eval_path = config.EVAL_PATH
+        train_batch_size = config.TRAIN_BATCH_SIZE
+        eval_batch_size = config.EVAL_BATCH_SIZE
 
-        train_sigma = config.train_sigma
-        eval_sigma = config.eval_sigma
+        train_sigma = config.TRAIN_SIGMA
+        eval_sigma = config.EVAL_SIGMA
 
-        train_loss_interval = config.train_loss_interval
-        eval_interval = config.eval_interval
+        train_loss_interval = config.TRAIN_LOSS_INTERVAL
+        eval_interval = config.EVAL_INTERVAL
 
         with self.graph.as_default():
             self.sess = tf.Session()
@@ -202,13 +201,13 @@ class FAN(object):
                 else:
                     self.detector = override_face_detector
                 reuse = False
-                if train_path is not None and train_path != "":
+                if train_path is not None:
                     self.train_dataset = inputs.input_fn(train_path,
                                                     batch_size=train_batch_size,
                                                     detector=self.detector.predict,
                                                     sigma=train_sigma, is_eval=False,
-                                                    input_size=config.input_size,
-                                                    num_landmark_pts=config.num_landmark_pts)
+                                                    input_size=config.INPUT_SIZE,
+                                                    num_landmark_pts=config.NUM_LANDMARK_PTS)
                     self.train_iterator = self.train_dataset.make_initializable_iterator()
                     self.train_image_tensor, self.train_heatmap_groundtruth_tensor = self.train_iterator.get_next()
                     self.train_heatmap_inferred_tensors = model.fan(config=config, x=self.train_image_tensor, reuse=reuse, training=True)
@@ -228,12 +227,12 @@ class FAN(object):
                     self.train_loss_interval = train_loss_interval
                     reuse = True
 
-                if eval_path is not None and eval_path != "":
+                if eval_path is not None:
                     self.val_dataset = inputs.input_fn(eval_path,
                                                     batch_size=eval_batch_size,
                                                     detector=self.detector.predict,is_eval=True,
-                                                    input_size=config.input_size,
-                                                    num_landmark_pts=config.num_landmark_pts)
+                                                    input_size=config.INPUT_SIZE,
+                                                    num_landmark_pts=config.NUM_LANDMARK_PTS)
                     self.val_iterator  = self.val_dataset.make_initializable_iterator()
                     self.val_image_tensor, self.val_landmark_groundtruth_tensor, self.val_bbx_tensor = self.val_iterator.get_next()
                     self.val_heatmap_inferred_tensors = model.fan(config=config, x=self.val_image_tensor,
@@ -251,7 +250,7 @@ class FAN(object):
                     reuse = True
 
                 self.saver = tf.train.Saver()
-                if checkpoint_path is not None and checkpoint_path != "":
+                if checkpoint_path is not None:
                     init_op = tf.global_variables_initializer()
                     self.sess.run(init_op)
                     self.saver.restore(self.sess, checkpoint_path)
@@ -365,34 +364,29 @@ class FAN(object):
 
 
 def main(config):
-    if not os.path.isdir(config.export_dir):
-        print('WARNING: the export directory does not exist, creating one:', config.export_dir)
-        os.makedirs(name=config.export_dir, mode=0o777, exist_ok=False)
+    if not os.path.isdir(config.EXPORT_DIR):
+        print('WARNING: the export directory does not exist, creating one:', config.EXPORT_DIR)
+        os.makedirs(name=config.EXPORT_DIR, mode=0o777, exist_ok=False)
 
     cur_epoch = 0
-    for epoch, lr in zip(config.learning_epoches, config.learning_rates):
+    for epoch, lr in zip(config.LEARNING_EPOCHES, config.LEARNING_RATES):
         if cur_epoch == 0:
-            checkpoint_path = config.initial_checkpoint_path
+            checkpoint_path = config.INITIAL_CHECKPOINT_PATH
         else:
-            checkpoint_path = os.path.join(config.export_dir, str(cur_epoch)+'.cp')
+            checkpoint_path = os.path.join(config.EXPORT_DIR, str(cur_epoch)+'.cp')
 
         fan = FAN(config=config,
                   checkpoint_path=checkpoint_path, 
                   learning_rate=lr,
-                  save_path=config.export_dir,
+                  save_path=config.EXPORT_DIR,
                   epoch_num_offset=cur_epoch)
         for i in range(epoch):
-            fan.epoch_train_and_eval(log_filename=config.log_filename, step_limit=config.step_limit)
+            fan.epoch_train_and_eval(log_filename=config.LOG_FILENAME, step_limit=config.STEP_LIMIT)
             cur_epoch += 1
     return
 
-def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', dest='config_path', type=str, required=True)
-    return parser.parse_args()
 
 if __name__ == '__main__':
-    args = parse_arguments()
-    from face_landmark.configs import build_config
-    config = build_config.parse_config(args.config_path)
+    from face_landmark.configs.config_light import ConfigLight
+    config = ConfigLight()
     main(config)

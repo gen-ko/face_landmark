@@ -5,6 +5,25 @@ from PIL import Image
 from skimage.transform import resize
 from skimage.filters import gaussian
 
+def write_value_at_position(image, x, y, c, value):
+    """write value to the specified position of the image
+    Args:
+        image: 3-D array, HWC format
+        x: float32, range from [0, 1), can be exceeded
+        y: float32, range from [0, 1), can be exceeded
+        c: int
+    Returns:
+        image: 3-D array, the image with written value
+    """
+    h, w, _ = image.shape
+    x_px = int(w * x)
+    y_px = int(h * y)
+    if x_px < 0 or x_px >= w or y_px < 0 or y_px >= h:
+        return image
+    image[y_px, x_px, c] = value
+    return image
+
+
 def extend_bbx_stage1(bbx):
     '''
     extend the bbx by 0.2x bbx_width left,
@@ -106,31 +125,31 @@ def random_occulusion(image, pts, sup=0.4, inf=0.1, probe=0.5):
         y_min = np.random.uniform(low=0.0, high=1.0-inf)
         x_max = np.random.uniform(low=x_min + inf, high=x_min + sup)
         y_max = np.random.uniform(low=y_min + inf, high=y_min + sup)
-        
+
         x_max = np.minimum(1.0, x_max)
         y_max = np.minimum(1.0, y_max)
-        
+
         h, w, c = image.shape
         dtype = image.dtype
-        
+
         x_min_ind = int(w*x_min)
         y_min_ind = int(h*y_min)
         x_max_ind = int(w*x_max)
         y_max_ind = int(h*y_max)
-        
+
         h_new = y_max_ind - y_min_ind
         w_new = x_max_ind - x_min_ind
-        
+
         low = image.min()
         high = image.max()
-        
-        
+
+
         patch = np.random.uniform(low=low, high=high, size=(h_new, w_new, c)).astype(dtype)
-        
+
         image[y_min_ind:y_max_ind, x_min_ind:x_max_ind] = patch
-            
+
     return image, pts
-        
+
 
 def extend_bbx_stage2(bbx, aspect_ratio):
     '''
@@ -235,6 +254,9 @@ def get_extend_matrix(bbx):
                     [0.0, 1.0/fy,eymin/fy],
                     [0.0,0.0,1.0]])
     return tmp
+
+
+
 
 
 def extend_image(image, extend_matrix):
@@ -359,14 +381,14 @@ def pts2heatmap(pts, h=64, w=64, sigma=1, singular=False):
     heatmap[index_ys, index_xs, index_cs] = 1.0
     if singular:
         return heatmap
-    
-    heatmap = gaussian(image=heatmap, 
-                       sigma=sigma, 
-                       output=None, 
-                       mode='constant', 
-                       cval=0.0, 
-                       multichannel=True, 
-                       preserve_range=False, 
+
+    heatmap = gaussian(image=heatmap,
+                       sigma=sigma,
+                       output=None,
+                       mode='constant',
+                       cval=0.0,
+                       multichannel=True,
+                       preserve_range=False,
                        truncate=4.0)
     # an alternative way, the gaussian kernel are not truncated
     #heatmap = scipy.ndimage.gaussian_filter(heatmap, sigma=sigma, mode='constant')

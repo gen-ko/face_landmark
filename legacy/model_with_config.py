@@ -12,6 +12,36 @@ def pool(x):
                 data_format='channels_last')
     return layer
 
+
+class BatchNorm(object):
+    def __init__(self):
+        self.bn = tf.layers.BatchNormalization(
+                axis=-1,
+                momentum=0.99,
+                epsilon=0.001,
+                center=True,
+                scale=True,
+                beta_initializer=tf.zeros_initializer(),
+                gamma_initializer=tf.ones_initializer(),
+                moving_mean_initializer=tf.zeros_initializer(),
+                moving_variance_initializer=tf.ones_initializer(),
+                beta_regularizer=tf.contrib.layers.l2_regularizer(scale=0.00001, scope=None),
+                gamma_regularizer=None,
+                beta_constraint=None,
+                gamma_constraint=None,
+                renorm=False,
+                renorm_clipping=None,
+                renorm_momentum=0.99,
+                fused=None,
+                trainable=True,
+                virtual_batch_size=None,
+                adjustment=None,
+                name=None)
+
+    def __call__(self, x, training):
+        return self.bn(x, training=training)
+
+
 def bn(x, training, name=None, reuse=None):
     with tf.variable_scope('batchnorm'):
         layer = tf.layers.batch_normalization(
@@ -155,25 +185,25 @@ def conv_block(x, out_channels, training):
     return out3
 
 
-def hourglass(x, level, training, channels):
+def hourglass(x, level, training, config):
     # upper branch
     with tf.variable_scope('up1'):
-        up1 = conv_block(x, channels, training=training)
+        up1 = conv_block(x, config.CONV4_CHANNELS, training=training)
         
     # lower branch
     with tf.variable_scope('low1'):
         low1 = pool(x)
         print('low1 shape:', low1.shape)
-        low1 = conv_block(low1, channels, training=training)
+        low1 = conv_block(low1, config.CONV4_CHANNELS, training=training)
 
     with tf.variable_scope('low2'):
         if level > 1:
-            low2 = hourglass(low1, level - 1, training=training, channels=channels)
+            low2 = hourglass(low1, level - 1, training=training, config=config)
         else:
-            low2 = conv_block(low1, channels, training=training)
+            low2 = conv_block(low1, config.CONV4_CHANNELS, training=training)
 
     with tf.variable_scope('low3'):
-        low3 = conv_block(low2, channels, training=training)
+        low3 = conv_block(low2, config.CONV4_CHANNELS, training=training)
 
     h = low3.shape[1]
     w = low3.shape[2]
@@ -192,16 +222,13 @@ def fan(x, config, reuse=None, training=True):
     '''
     x NHWC image tensor, where H = 256, W = 256, C = 3, dtype= tf.float32, range from [-1, 1]
     '''
-    num_modules = config.num_modules
+    num_modules = config.NUM_MODULES
     
     x = tf.identity(x, name='image_tensor')
-    if config.use_image_gradient:
+    if config.USE_IMAGE_GRADIENT:
         x_dy, x_dx = tf.image.image_gradients(x)
         shape = tf.shape(x)
-        h = shape[1].value
-        w = shape[2].value
-        c = shape[3].value
-        shape = [h, w]
+        shape = shape[1:3]
         x = tf.concat([x, x_dx, x_dy], axis=3, name='stacked_gradients')
     
     with tf.variable_scope('fan', reuse=reuse):
@@ -209,43 +236,36 @@ def fan(x, config, reuse=None, training=True):
         # feature extractor
         with tf.variable_scope('base'):
             with tf.variable_scope('conv1'):
-                conv1 = conv7x7(x, config.conv1_channels)
+                conv1 = conv7x7(x, config.CONV1_CHANNELS)
                 bn1 = bn(conv1, training=training)
                 relu1 = tf.nn.relu(bn1)
             with tf.variable_scope('conv2'):
-                conv2 = conv_block(relu1, config.conv2_channels, training=training)
+                conv2 = conv_block(relu1, config.CONV2_CHANNELS, training=training)
                 pool1 = pool(conv2)
             with tf.variable_scope('conv3'):
-                conv3 = conv_block(pool1, config.conv3_channels, training=training)
+                conv3 = conv_block(pool1, config.CONV3_CHANNELS, training=training)
             with tf.variable_scope('conv4'):
-                conv4 = conv_block(conv3, config.conv4_channels, training=training)
+                conv4 = conv_block(conv3, config.CONV4_CHANNELS, training=training)
 
         # Concatenated modules
         previous = conv4
         outputs = []
         for i in range(num_modules):
-            # NOTE:
-            # for newly trained models, the scope is hourglass_i
-            # for previous trained models, the scope is hourglassi
-            if config.input_size == 256:
-                scope_name = 'hourglass_' + str(i)
-            else:
-                scope_name = 'hourglass' + str(i)
-            with tf.variable_scope(scope_name):
+            with tf.variable_scope('hourglass' + str(i)):
                 print('previous shape:', previous.shape)
                 with tf.variable_scope('hg'+str(i)):
-                    hg = hourglass(previous, 4, training=training, channels=config.conv4_channels)
+                    hg = hourglass(previous, 4, training=training, config=config)
                 with tf.variable_scope('tmp_out'+str(i)):
                     ll = bn(hg, training=training)
                     ll = tf.nn.relu(ll)
-                    tmp_out = conv1x1(ll, config.num_landmark_pts)
+                    tmp_out = conv1x1(ll, config.NUM_LANDMARK_PTS)
                     outputs.append(tmp_out)
                 if i < num_modules - 1:
-                    with tf.variable_scope('connector_'+str(i)):
+                    with tf.variable_scope('connector'+str(i)):
                         with tf.variable_scope('conv1'):
-                            ll = conv1x1(ll, config.conv4_channels)
+                            ll = conv1x1(ll, config.CONV4_CHANNELS)
                         with tf.variable_scope('conv2'):
-                            tmp_out_ = conv1x1(tmp_out, config.conv4_channels)
+                            tmp_out_ = conv1x1(tmp_out, config.CONV4_CHANNELS)
                         previous = previous + ll + tmp_out_
     resized_outputs = []
     for output in outputs:

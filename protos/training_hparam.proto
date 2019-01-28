@@ -1,0 +1,33 @@
+syntax = "proto2";
+
+package face_landmark.protos;
+
+// Train config for a single stage
+message TrainConfig {
+    optional uint32 train_batch_size = 1 [default=24];
+
+    optional float learning_rate = 2 [default=0.0001];
+
+    optional uint32 epoches = 3 [default=10];
+
+    // Evaluate the model each 100 steps
+    optional uint32 eval_interval = 4 [default=100];
+}
+
+message LandmarkModelConfig {
+    optional uint32 num_modules = 1 [default=4];
+
+    optional bool use_image_gradient = 2 [default=5];
+
+    optional LandmarkFeatureExtractorConfig lfec = 3;
+}
+
+message LandmarkFeatureExtratorConfig {
+    optional uint32 l1_channels = 1 [default=64];
+
+    optional uint32 l2_channels = 2 [default=128];
+
+    optional uint32 l3_channels = 3 [default=128];
+
+    optional uint32 l4_channels = 4 [default=256];
+}
