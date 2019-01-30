@@ -31,18 +31,19 @@ def main(args):
         cap = cv2.VideoCapture(args.source)
     elif args.mode == 'camera':
         cap = cv2.VideoCapture(int(args.source))
-    if args.dump_result is not None:
-        # Define the codec and create VideoWriter object
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-
-        if args.mode == 'camera':
-            _, frame = cap.read()
-            h = frame.shape[0]
-            w = frame.shape[1]
-            out = cv2.VideoWriter(args.dump_result,fourcc, 20.0, (w,h))
-        else:
-            raise NotImplementedError
     
+    if cap.isOpened(): 
+        # get vcap property 
+        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)   # float
+        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+    else:
+        raise ValueError('video cannot be opened')
+    
+    if args.dump_result is not None:
+        fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+        out = cv2.VideoWriter(args.dump_result,fourcc, fps, (int(w),int(h)))
+
     while True:
         _, frame = cap.read()
 
@@ -67,7 +68,6 @@ def main(args):
         
         if args.dump_result is not None:
             out.write(frame)
-
 
         key = cv2.waitKey(delay=1)
         if key & 0xFF == ord('q'):
