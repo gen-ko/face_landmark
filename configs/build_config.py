@@ -78,7 +78,8 @@ def parse_config(config_path):
     if config.plot_dir == "":
         config.plot_dir = os.path.join(config.export_dir, 'figures')
     if not os.path.exists(config.plot_dir):
-        os.makedirs(name=config.plot_dir, mode=0o777, exist_ok=False)
+        pass
+        #os.makedirs(name=config.plot_dir, mode=0o777, exist_ok=False)
 
     if config.train_loss_interval == 0:
         config.train_loss_interval = 20

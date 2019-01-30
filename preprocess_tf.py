@@ -659,7 +659,7 @@ def heatmap2pts(heatmap):
 
 def heatmap2pts_batch(heatmap, target_height=256, target_width=256):
     shape = tf.shape(heatmap)
-    c = shape[3]
+    c = heatmap.shape[3].value
     heatmap = tf.reshape(heatmap, [-1, target_height * target_width, c])
     indice = tf.cast(tf.argmax(heatmap, axis=1), dtype=tf.int32)
     rows = tf.cast(indice / target_width, dtype=tf.int32)
