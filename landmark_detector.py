@@ -3,8 +3,8 @@ import os
 import numpy as np
 import tensorflow as tf
 import cv2
-from face_landmark import preprocess_tf as landmark_util
-# NOTE: the next generation of preprocess should be imported from wheel_heaps
+from lambdaflow.python.face_landmark import preprocess_tf as landmark_util
+# NOTE: the next generation of preprocess should be imported from lambdaflow.python.utils
 import time
 
 CUR_SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -17,9 +17,9 @@ class LandmarkDetector(object):
         if model_path is None:
             raise ValueError('model_path is None')
         model_path = os.path.join(model_path)
-            
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
+        #gpu_options = 
+        config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))
+        #config.gpu_options.allow_growth = True
         graph = tf.Graph()
         with graph.as_default():
             graph_def = tf.GraphDef()
