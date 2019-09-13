@@ -3,7 +3,7 @@ import os
 import numpy as np
 import tensorflow as tf
 import cv2
-from lambdaflow.python.face_landmark import preprocess_tf as landmark_util
+from face_landmark import preprocess_tf as landmark_util
 # NOTE: the next generation of preprocess should be imported from lambdaflow.python.utils
 import time
 

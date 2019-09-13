@@ -9,4 +9,8 @@ saved_model
 *.ipynb
 cache
 
+
+# egg-info
+*.egg_info
+
 .vscode/settings.json
