@@ -11,6 +11,7 @@ cache
 
 
 # egg-info
-*.egg_info
+*.egg-info
+
 
 .vscode/settings.json
